@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "825266671547",
+    "firebase_url": "https://triconnect-30e3b-default-rtdb.firebaseio.com",
+    "project_id": "triconnect-30e3b",
+    "storage_bucket": "triconnect-30e3b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:825266671547:android:743da99034b217d939fe9e",
+        "android_client_info": {
+          "package_name": "com.example.triconnect"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAdf99Zg9CbuJCyJwdXjr2MNV-pJEvgrFQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
