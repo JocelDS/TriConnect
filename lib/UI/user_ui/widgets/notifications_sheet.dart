@@ -49,7 +49,6 @@ class NotificationsSheet extends StatelessWidget {
                 stream: db
                     .collection('notifications')
                     .where('uid', isEqualTo: uid)
-                    .orderBy('createdAt', descending: true)
                     .snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {
@@ -61,16 +60,25 @@ class NotificationsSheet extends StatelessWidget {
                     );
                   }
                   final docs = snapshot.data!.docs;
-                  if (docs.isEmpty) {
+                  final sortedDocs = List<QueryDocumentSnapshot>.from(docs)
+                    ..sort((a, b) {
+                      final aTime = (a.data() as Map<String, dynamic>)['createdAt'];
+                      final bTime = (b.data() as Map<String, dynamic>)['createdAt'];
+                      if (aTime is Timestamp && bTime is Timestamp) {
+                        return bTime.compareTo(aTime);
+                      }
+                      return 0;
+                    });
+                  if (sortedDocs.isEmpty) {
                     return const Center(child: Text("You're all caught up."));
                   }
                   return ListView.separated(
                     controller: scrollController,
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                    itemCount: docs.length,
+                    itemCount: sortedDocs.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
-                      final doc = docs[index];
+                      final doc = sortedDocs[index];
                       final data = doc.data() as Map<String, dynamic>;
                       final title = (data['title'] ?? 'Notification') as String;
                       final body = (data['body'] ?? '') as String;

@@ -1,8 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:triconnect/UI/user_ui/widgets/book_ride_dialog.dart';
-import 'package:triconnect/UI/user_ui/widgets/driver_queue_sheet.dart';
-import 'package:triconnect/UI/user_ui/widgets/map_grid_painter.dart';
+// Removed map_grid_painter; using GoogleMap for live markers.
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:triconnect/services/notification_service.dart';
 import 'package:triconnect/UI/user_ui/widgets/notifications_sheet.dart';
 import 'package:triconnect/UI/user_ui/widgets/quick_action.dart';
 import 'package:triconnect/services/auth_service.dart';
@@ -10,8 +11,14 @@ import 'package:triconnect/services/auth_service.dart';
 class HomeTab extends StatefulWidget {
   final AuthService authService;
   final FirebaseFirestore db;
+  final void Function(int index)? onNavigateToTab;
 
-  const HomeTab({super.key, required this.authService, required this.db});
+  const HomeTab({
+    super.key,
+    required this.authService,
+    required this.db,
+    this.onNavigateToTab,
+  });
 
   @override
   State<HomeTab> createState() => _HomeTabState();
@@ -68,6 +75,11 @@ class _HomeTabState extends State<HomeTab> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  void _openMyRides() {
+    widget.onNavigateToTab?.call(1);
+    _showSnack("Opening your ride history.");
+  }
+
   Future<void> _bookRide() async {
     final user = widget.authService.currentUser;
     if (user == null) {
@@ -86,15 +98,25 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
-  void _openDriverQueue() {
+  void _openCurrentRide() {
+    final user = widget.authService.currentUser;
+    if (user == null) {
+      _showSnack("Sign in first to view your ride.");
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => DriverQueueSheet(db: widget.db),
+      builder: (context) => _CurrentRideSheet(db: widget.db, uid: user.uid),
     );
+  }
+
+  void _openSupport() {
+    _showSnack("Support is not configured yet. Please contact the admin.");
   }
 
   void _openNotifications() {
@@ -332,19 +354,19 @@ class _HomeTabState extends State<HomeTab> {
         icon: Icons.history,
         title: "My Rides",
         subtitle: "View your trip history",
-        onTap: () => _showSnack("Check the History tab below."),
+        onTap: _openMyRides,
       ),
       QuickAction(
-        icon: Icons.groups_outlined,
-        title: "Driver Queue",
-        subtitle: "Monitor nearby drivers",
-        onTap: _openDriverQueue,
+        icon: Icons.local_taxi_outlined,
+        title: "Track Ride",
+        subtitle: "View your current request",
+        onTap: _openCurrentRide,
       ),
       QuickAction(
-        icon: Icons.notifications_none,
-        title: "Notifications",
-        subtitle: "Check your messages",
-        onTap: _openNotifications,
+        icon: Icons.help_outline,
+        title: "Support",
+        subtitle: "Need help with a ride?",
+        onTap: _openSupport,
       ),
     ];
 
@@ -363,6 +385,8 @@ class _HomeTabState extends State<HomeTab> {
   }
 
   Widget _buildLiveTrafficCard() {
+    final user = widget.authService.currentUser;
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
       child: Container(
@@ -377,7 +401,44 @@ class _HomeTabState extends State<HomeTab> {
         ),
         child: Stack(
           children: [
-            Positioned.fill(child: CustomPaint(painter: MapGridPainter())),
+            Positioned.fill(
+              child: StreamBuilder<QuerySnapshot>(
+                stream: widget.db
+                    .collection('rides')
+                    .where('status', isEqualTo: 'pending')
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  final initial = CameraPosition(
+                    target: LatLng(14.0703, 121.3255),
+                    zoom: 13,
+                  );
+
+                  final markers = <Marker>{};
+                  if (snapshot.hasData) {
+                    for (final doc in snapshot.data!.docs) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      final lat = (data['destinationLat'] ?? data['destination_lat'] ?? data['destinationLatitude']) as double?;
+                      final lng = (data['destinationLng'] ?? data['destination_lng'] ?? data['destinationLongitude']) as double?;
+                      if (lat != null && lng != null) {
+                        markers.add(Marker(
+                          markerId: MarkerId(doc.id),
+                          position: LatLng(lat, lng),
+                          infoWindow: InfoWindow(title: data['destination'] ?? 'Ride'),
+                        ));
+                      }
+                    }
+                  }
+
+                  return GoogleMap(
+                    initialCameraPosition: initial,
+                    markers: markers,
+                    myLocationEnabled: false,
+                    zoomControlsEnabled: false,
+                    liteModeEnabled: true,
+                  );
+                },
+              ),
+            ),
             Positioned(
               left: 16,
               bottom: 16,
@@ -385,7 +446,7 @@ class _HomeTabState extends State<HomeTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    "Live Traffic",
+                    "Ride Status",
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -394,32 +455,46 @@ class _HomeTabState extends State<HomeTab> {
                   ),
                   const SizedBox(height: 2),
                   StreamBuilder<QuerySnapshot>(
-                    stream: widget.db
-                        .collection('drivers')
-                        .where('active', isEqualTo: true)
-                        .snapshots(),
+                    stream: user == null
+                        ? const Stream.empty()
+                        : widget.db
+                            .collection('rides')
+                            .where('userId', isEqualTo: user.uid)
+                            .where('status', whereIn: const ['pending', 'accepted'])
+                            .snapshots(),
                     builder: (context, snapshot) {
+                      if (user == null) {
+                        return const Text(
+                          "Sign in to track your ride.",
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                          ),
+                        );
+                      }
+
                       final count = snapshot.hasData
                           ? snapshot.data!.docs.length
                           : null;
-                      return Row(
-                        children: [
-                          const Icon(
-                            Icons.circle,
-                            color: Colors.greenAccent,
-                            size: 8,
+
+                      if (count == 0) {
+                        return const Text(
+                          "No active ride requests.",
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
                           ),
-                          const SizedBox(width: 6),
-                          Text(
-                            count == null
-                                ? "Loading drivers..."
-                                : "$count Drivers Active Nearby",
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
+                        );
+                      }
+
+                      return Text(
+                        count == null
+                            ? "Checking your ride status..."
+                            : "$count active ride request${count == 1 ? '' : 's'}",
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
                       );
                     },
                   ),
@@ -431,7 +506,7 @@ class _HomeTabState extends State<HomeTab> {
               bottom: 14,
               child: InkWell(
                 borderRadius: BorderRadius.circular(24),
-                onTap: _openDriverQueue,
+                onTap: _openCurrentRide,
                 child: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: const BoxDecoration(
@@ -444,6 +519,226 @@ class _HomeTabState extends State<HomeTab> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _CurrentRideSheet extends StatefulWidget {
+  final FirebaseFirestore db;
+  final String uid;
+
+  const _CurrentRideSheet({required this.db, required this.uid});
+
+  @override
+  State<_CurrentRideSheet> createState() => _CurrentRideSheetState();
+}
+
+class _CurrentRideSheetState extends State<_CurrentRideSheet> {
+  String? _lastStatus;
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.35,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) {
+        return Column(
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Text(
+                "Current Ride",
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1E3A6D),
+                ),
+              ),
+            ),
+            Expanded(
+              child: StreamBuilder<QuerySnapshot>(
+                stream: widget.db
+                    .collection('rides')
+                    .where('userId', isEqualTo: widget.uid)
+                    .where('status', whereIn: const ['pending', 'accepted'])
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return Center(child: Text("Error: ${snapshot.error}"));
+                  }
+                  if (!snapshot.hasData) {
+                    return const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF1E3A6D),
+                      ),
+                    );
+                  }
+                  final docs = snapshot.data!.docs;
+                  if (docs.isEmpty) {
+                    return const Center(
+                      child: Text("You have no active ride requests."),
+                    );
+                  }
+                  final doc = docs.first;
+                  final ride = doc.data() as Map<String, dynamic>;
+                  final status = ((ride['status'] ?? 'pending') as String).toLowerCase();
+                  final pickup = ride['pickupAddress'] ?? ride['pickup'] ?? '-';
+                  final destination = ride['destinationAddress'] ?? ride['destination'] ?? '-';
+                  final driver = ride['driverId'] as String?;
+
+                  // notify on status change
+                  if (_lastStatus != status) {
+                    _lastStatus = status;
+                    if (status == 'accepted') {
+                      NotificationService().showNotification(
+                        id: 1,
+                        title: 'Driver Assigned',
+                        body: 'A driver accepted your ride to $destination.',
+                      );
+                    } else if (status == 'cancelled') {
+                      NotificationService().showNotification(
+                        id: 2,
+                        title: 'Ride Cancelled',
+                        body: 'Your ride to $destination was cancelled.',
+                      );
+                    }
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _InfoTile(label: 'Pickup', value: pickup),
+                        const SizedBox(height: 10),
+                        _InfoTile(label: 'Destination', value: destination),
+                        const SizedBox(height: 10),
+                        _InfoTile(
+                          label: 'Status',
+                          value: status[0].toUpperCase() + status.substring(1),
+                        ),
+                        const SizedBox(height: 10),
+                        _InfoTile(
+                          label: 'Driver',
+                          value: driver != null && driver.isNotEmpty
+                              ? driver
+                              : 'Waiting for driver',
+                        ),
+                        const Spacer(),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () async {
+                                  Navigator.pop(context);
+                                },
+                                child: const Text('Close'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: status == 'cancelled'
+                                    ? null
+                                    : () async {
+                                        try {
+                                          await doc.reference.update({
+                                            'status': 'cancelled',
+                                            'updatedAt': FieldValue.serverTimestamp(),
+                                          });
+                                          await widget.db.collection('notifications').add({
+                                            'uid': widget.uid,
+                                            'title': 'Ride cancelled',
+                                            'body': 'You cancelled your ride to $destination.',
+                                            'read': false,
+                                            'createdAt': FieldValue.serverTimestamp(),
+                                          });
+                                          NotificationService().showNotification(
+                                            id: 3,
+                                            title: 'Cancelled',
+                                            body: 'Your ride request was cancelled.',
+                                          );
+                                        } catch (e) {
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text('Cancellation failed: $e')),
+                                            );
+                                          }
+                                        }
+                                      },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF1E3A6D),
+                                  foregroundColor: Colors.white,
+                                ),
+                                child: const Text('Cancel Ride'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _InfoTile extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _InfoTile({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
       ),
     );
   }

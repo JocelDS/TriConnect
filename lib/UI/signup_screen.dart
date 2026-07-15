@@ -17,14 +17,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController phoneController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
-  final TextEditingController confirmPasswordController =
-      TextEditingController();
+  final TextEditingController confirmPasswordController = TextEditingController();
 
   bool obscurePassword = true;
   bool obscureConfirmPassword = true;
   bool agreeTerms = false;
   bool isLoading = false;
   String selectedRole = 'customer'; // Default role
+
+  static const Color _navy = Color(0xFF1E3A6D);
 
   bool _isValidEmail(String email) {
     return RegExp(r"^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}").hasMatch(email);
@@ -50,7 +51,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
     try {
       await _authService.signUp(
         fullName: fullNameController.text.trim(),
-        email: emailController.text,
+        email: emailController.text.trim(),
         phone: phoneController.text.trim(),
         password: passwordController.text,
         role: selectedRole,
@@ -87,7 +88,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   }) {
     return InputDecoration(
       hintText: hint,
-      prefixIcon: Icon(icon),
+      prefixIcon: Icon(icon, color: Colors.grey.shade600),
       suffixIcon: suffixIcon,
       filled: true,
       fillColor: Colors.white,
@@ -104,30 +105,25 @@ class _SignUpScreenState extends State<SignUpScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 28),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           child: Form(
             key: _formKey,
             child: Column(
               children: [
-                const SizedBox(height: 25),
-
-                Image.asset("assets/images/TriConnectLogo.png", width: 120),
-
-                const SizedBox(height: 25),
-
+                const SizedBox(height: 18),
+                Image.asset("assets/images/TriConnectLogo.png", width: 110),
+                const SizedBox(height: 18),
                 const Text(
                   "Create Account",
                   style: TextStyle(
-                    fontSize: 30,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2F5BD3),
+                    fontSize: 26,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1E3A6D),
                   ),
                 ),
-
-                const SizedBox(height: 30),
+                const SizedBox(height: 22),
 
                 /// Full Name
                 TextFormField(
@@ -136,11 +132,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     "Full Name",
                     Icons.person_outline,
                   ),
-                  validator: (value) =>
-                      value!.isEmpty ? "Enter your full name" : null,
+                  validator: (value) => value!.isEmpty ? "Enter your full name" : null,
                 ),
 
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
 
                 /// Email
                 TextFormField(
@@ -161,7 +156,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   },
                 ),
 
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
 
                 /// Phone
                 TextFormField(
@@ -171,46 +166,19 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     "Mobile Number",
                     Icons.phone_android,
                   ),
-                ),
-
-                const SizedBox(height: 18),
-
-                /// Password
-                TextFormField(
-                  controller: passwordController,
-                  obscureText: obscurePassword,
-                  decoration: inputDecoration(
-                    "Password",
-                    Icons.lock_outline,
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        obscurePassword
-                            ? Icons.visibility_off
-                            : Icons.visibility,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          obscurePassword = !obscurePassword;
-                        });
-                      },
-                    ),
-                  ),
                   validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return "Enter your password";
-                    }
-                    if (value.length < 6) {
-                      return "Password must be at least 6 characters";
-                    }
+                    if (value == null || value.trim().isEmpty) return 'Enter mobile number';
+                    final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+                    if (digits.length < 10) return 'Enter a valid mobile number';
                     return null;
                   },
                 ),
 
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
 
-                /// Role Selection
+                /// Role Selection (moved above password)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
                     border: Border.all(color: Colors.grey.shade300),
                     borderRadius: BorderRadius.circular(30),
@@ -263,7 +231,38 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   ),
                 ),
 
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
+
+                /// Password
+                TextFormField(
+                  controller: passwordController,
+                  obscureText: obscurePassword,
+                  decoration: inputDecoration(
+                    "Password",
+                    Icons.lock_outline,
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscurePassword ? Icons.visibility_off : Icons.visibility,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          obscurePassword = !obscurePassword;
+                        });
+                      },
+                    ),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return "Enter your password";
+                    }
+                    if (value.length < 6) {
+                      return "Password must be at least 6 characters";
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 14),
 
                 /// Confirm Password
                 TextFormField(
@@ -273,11 +272,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     "Confirm Password",
                     Icons.lock_outline,
                     suffixIcon: IconButton(
-                      icon: Icon(
-                        obscureConfirmPassword
-                            ? Icons.visibility_off
-                            : Icons.visibility,
-                      ),
+                      icon: Icon(obscureConfirmPassword ? Icons.visibility_off : Icons.visibility),
                       onPressed: () {
                         setState(() {
                           obscureConfirmPassword = !obscureConfirmPassword;
@@ -296,13 +291,13 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   },
                 ),
 
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
 
                 Row(
                   children: [
                     Checkbox(
                       value: agreeTerms,
-                      activeColor: const Color(0xFF2F5BD3),
+                      activeColor: _navy,
                       onChanged: (value) {
                         setState(() {
                           agreeTerms = value!;
@@ -319,34 +314,34 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   ],
                 ),
 
-                const SizedBox(height: 15),
+                const SizedBox(height: 12),
 
                 SizedBox(
                   width: double.infinity,
-                  height: 55,
+                  height: 52,
                   child: ElevatedButton(
                     onPressed: isLoading ? null : _handleSignUp,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2F5BD3),
+                      backgroundColor: _navy,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
+                        borderRadius: BorderRadius.circular(28),
                       ),
                     ),
                     child: isLoading
                         ? const SizedBox(
-                            width: 22,
-                            height: 22,
+                            width: 20,
+                            height: 20,
                             child: CircularProgressIndicator(
                               color: Colors.white,
-                              strokeWidth: 2.5,
+                              strokeWidth: 2.0,
                             ),
                           )
                         : const Text(
-                            "SIGN UP",
+                            "Create Account",
                             style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                   ),

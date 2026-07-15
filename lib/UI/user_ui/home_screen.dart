@@ -21,7 +21,11 @@ class _HomeScreenFunctionalState extends State<HomeScreenFunctional> {
   @override
   Widget build(BuildContext context) {
     final tabs = [
-      HomeTab(authService: _authService, db: _db),
+      HomeTab(
+        authService: _authService,
+        db: _db,
+        onNavigateToTab: (index) => setState(() => _selectedTab = index),
+      ),
       HistoryTab(authService: _authService, db: _db),
       ProfileTab(authService: _authService, db: _db),
     ];

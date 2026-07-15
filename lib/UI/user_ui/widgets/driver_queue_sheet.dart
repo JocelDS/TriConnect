@@ -90,8 +90,8 @@ class _DriverQueueSheetState extends State<DriverQueueSheet> {
                     const SizedBox(height: 16),
                     StreamBuilder<QuerySnapshot>(
                       stream: _db
-                          .collection('ride_requests')
-                          .where('status', isEqualTo: 'Pending')
+                          .collection('rides')
+                          .where('status', isEqualTo: 'pending')
                           .snapshots(),
                       builder: (context, snapshot) {
                         if (snapshot.connectionState ==
@@ -112,18 +112,33 @@ class _DriverQueueSheetState extends State<DriverQueueSheet> {
                           itemCount: snapshot.data!.docs.length,
                           itemBuilder: (context, index) {
                             final ride = snapshot.data!.docs[index];
+                            final rideData = ride.data() as Map<String, dynamic>;
+                            final pickup = rideData['pickupAddress'] ?? rideData['pickup'] ?? 'Pickup not set';
+                            final destination = rideData['destinationAddress'] ?? rideData['destination'] ?? 'Destination not set';
                             return ListTile(
                               leading: const Icon(Icons.location_on_outlined),
-                              title: Text(ride['destination']),
-                              subtitle: Text("From: ${ride['pickupAddress']}"),
+                              title: Text(destination),
+                              subtitle: Text("From: $pickup"),
                               trailing: ElevatedButton(
                                 onPressed: () async {
                                   final user = _authService.currentUser;
                                   try {
                                     await ride.reference.update({
-                                      'status': 'Accepted',
-                                      'driverId': user?.uid,
+                                      'status': 'accepted',
+                                      'driverId': user?.uid ?? '',
+                                      'updatedAt': FieldValue.serverTimestamp(),
                                     });
+
+                                    if (rideData['userId'] != null) {
+                                      await _db.collection('notifications').add({
+                                        'uid': rideData['userId'],
+                                        'title': 'Ride accepted',
+                                        'body': 'A driver accepted your ride to $destination.',
+                                        'read': false,
+                                        'createdAt': FieldValue.serverTimestamp(),
+                                      });
+                                    }
+
                                     if (context.mounted) {
                                       ScaffoldMessenger.of(
                                         context,

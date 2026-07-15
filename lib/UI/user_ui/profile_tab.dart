@@ -1,6 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:triconnect/services/auth_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+const _navy = Color(0xFF1E3A6D);
+
+// Enhancements: Edit profile, ride stats, and support message
 
 class ProfileTab extends StatelessWidget {
   final AuthService authService;
@@ -85,6 +90,75 @@ class ProfileTab extends StatelessWidget {
               label: "Phone",
               value: phone,
             ),
+            const SizedBox(height: 20),
+            // Ride stats
+            StreamBuilder<QuerySnapshot>(
+              stream: db
+                  .collection('rides')
+                  .where('userId', isEqualTo: user?.uid)
+                  .snapshots(),
+              builder: (context, ridesSnap) {
+                final docs = ridesSnap.data?.docs ?? [];
+                final totalRides = docs.length;
+                double totalSpent = 0;
+                for (final d in docs) {
+                  final data = d.data() as Map<String, dynamic>;
+                  final fare = (data['fare'] ?? 0) as num;
+                  totalSpent += fare.toDouble();
+                }
+
+                return Row(
+                  children: [
+                    Expanded(
+                      child: _StatCard(
+                        label: 'Total Rides',
+                        value: totalRides.toString(),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _StatCard(
+                        label: 'Total Spent',
+                        value: '₱${totalSpent.toStringAsFixed(2)}',
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 48,
+                    child: OutlinedButton(
+                      onPressed: () => _showEditProfileDialog(context, user?.uid, profile),
+                      child: const Text('Edit Profile'),
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SizedBox(
+                    height: 48,
+                    child: ElevatedButton(
+                          onPressed: () => _showSupportDialog(context, user?.uid),
+                          child: const Text('Support'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _navy,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 30),
             SizedBox(
               height: 50,
@@ -156,6 +230,105 @@ class _ProfileField extends StatelessWidget {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _StatCard({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          const SizedBox(height: 8),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        ],
+      ),
+    );
+  }
+}
+
+// Dialogs
+extension on ProfileTab {
+  void _showEditProfileDialog(BuildContext context, String? uid, Map<String, dynamic>? profile) {
+    if (uid == null) return;
+    final _nameController = TextEditingController(text: profile?['fullName'] as String?);
+    final _phoneController = TextEditingController(text: profile?['phone'] as String?);
+
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Profile'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Full name')),
+            TextField(controller: _phoneController, decoration: const InputDecoration(labelText: 'Phone')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () async {
+            final fn = _nameController.text.trim();
+            final ph = _phoneController.text.trim();
+            try {
+              await FirebaseFirestore.instance.collection('users').doc(uid).update({'fullName': fn, 'phone': ph});
+              // Update display name in Firebase Auth as well
+              await FirebaseAuth.instance.currentUser?.updateDisplayName(fn);
+              Navigator.pop(context);
+            } catch (e) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Update failed: $e')));
+            }
+          }, child: const Text('Save')),
+        ],
+      ),
+    ).then((_) => (context as Element).markNeedsBuild());
+  }
+
+  void _showSupportDialog(BuildContext context, String? uid) {
+    if (uid == null) return;
+    final _msgController = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Support'),
+        content: TextField(controller: _msgController, decoration: const InputDecoration(hintText: 'Describe your issue')), 
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () async {
+            final msg = _msgController.text.trim();
+            if (msg.isEmpty) return;
+            try {
+              await FirebaseFirestore.instance.collection('support').add({
+                'uid': uid,
+                'message': msg,
+                'createdAt': FieldValue.serverTimestamp(),
+              });
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Support request sent')));
+            } catch (e) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to send: $e')));
+            }
+          }, child: const Text('Send')),
         ],
       ),
     );

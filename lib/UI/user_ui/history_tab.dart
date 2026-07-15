@@ -33,7 +33,6 @@ class HistoryTab extends StatelessWidget {
                   stream: db
                       .collection('rides')
                       .where('userId', isEqualTo: user.uid)
-                      .orderBy('createdAt', descending: true)
                       .snapshots(),
                   builder: (context, snapshot) {
                     if (snapshot.hasError) {
@@ -47,18 +46,31 @@ class HistoryTab extends StatelessWidget {
                       );
                     }
                     final docs = snapshot.data!.docs;
-                    if (docs.isEmpty) {
+                    final sortedDocs = List<QueryDocumentSnapshot>.from(docs)
+                      ..sort((a, b) {
+                        final aTime = (a.data() as Map<String, dynamic>)['createdAt'];
+                        final bTime = (b.data() as Map<String, dynamic>)['createdAt'];
+                        if (aTime is Timestamp && bTime is Timestamp) {
+                          return bTime.compareTo(aTime);
+                        }
+                        return 0;
+                      });
+                    if (sortedDocs.isEmpty) {
                       return const Center(
                         child: Text("No rides yet. Book one from Home!"),
                       );
                     }
                     return ListView.separated(
                       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                      itemCount: docs.length,
+                      itemCount: sortedDocs.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 10),
                       itemBuilder: (context, index) {
-                        final data = docs[index].data() as Map<String, dynamic>;
-                        final status = (data['status'] ?? 'unknown') as String;
+                        final data = sortedDocs[index].data() as Map<String, dynamic>;
+                        final status = ((data['status'] ?? 'pending') as String)
+                            .toLowerCase();
+                        final pickup = data['pickupAddress'] ?? data['pickup'] ?? '-';
+                        final destination =
+                            data['destinationAddress'] ?? data['destination'] ?? '-';
                         return Container(
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
@@ -89,7 +101,7 @@ class HistoryTab extends StatelessWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      "${data['pickup'] ?? '-'} → ${data['destination'] ?? '-'}",
+                                      "$pickup → $destination",
                                       style: const TextStyle(
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -100,7 +112,7 @@ class HistoryTab extends StatelessWidget {
                                           status.substring(1),
                                       style: TextStyle(
                                         fontSize: 12,
-                                        color: status == 'completed'
+                                        color: status == 'completed' || status == 'accepted'
                                             ? Colors.green
                                             : Colors.orange,
                                       ),
