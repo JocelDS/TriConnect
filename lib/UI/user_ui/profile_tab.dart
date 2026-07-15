@@ -134,12 +134,12 @@ class ProfileTab extends StatelessWidget {
                     height: 48,
                     child: OutlinedButton(
                       onPressed: () => _showEditProfileDialog(context, user?.uid, profile),
-                      child: const Text('Edit Profile'),
                       style: OutlinedButton.styleFrom(
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
+                      child: const Text('Edit Profile'),
                     ),
                   ),
                 ),
@@ -149,11 +149,11 @@ class ProfileTab extends StatelessWidget {
                     height: 48,
                     child: ElevatedButton(
                           onPressed: () => _showSupportDialog(context, user?.uid),
-                          child: const Text('Support'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _navy,
                             foregroundColor: Colors.white,
                           ),
+                          child: const Text('Support'),
                         ),
                   ),
                 ),
@@ -269,8 +269,8 @@ class _StatCard extends StatelessWidget {
 extension on ProfileTab {
   void _showEditProfileDialog(BuildContext context, String? uid, Map<String, dynamic>? profile) {
     if (uid == null) return;
-    final _nameController = TextEditingController(text: profile?['fullName'] as String?);
-    final _phoneController = TextEditingController(text: profile?['phone'] as String?);
+    final nameController = TextEditingController(text: profile?['fullName'] as String?);
+    final phoneController = TextEditingController(text: profile?['phone'] as String?);
 
     showDialog<void>(
       context: context,
@@ -279,15 +279,15 @@ extension on ProfileTab {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Full name')),
-            TextField(controller: _phoneController, decoration: const InputDecoration(labelText: 'Phone')),
+            TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Full name')),
+            TextField(controller: phoneController, decoration: const InputDecoration(labelText: 'Phone')),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(onPressed: () async {
-            final fn = _nameController.text.trim();
-            final ph = _phoneController.text.trim();
+            final fn = nameController.text.trim();
+            final ph = phoneController.text.trim();
             try {
               await FirebaseFirestore.instance.collection('users').doc(uid).update({'fullName': fn, 'phone': ph});
               // Update display name in Firebase Auth as well
@@ -305,16 +305,16 @@ extension on ProfileTab {
 
   void _showSupportDialog(BuildContext context, String? uid) {
     if (uid == null) return;
-    final _msgController = TextEditingController();
+    final msgController = TextEditingController();
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Support'),
-        content: TextField(controller: _msgController, decoration: const InputDecoration(hintText: 'Describe your issue')), 
+        content: TextField(controller: msgController, decoration: const InputDecoration(hintText: 'Describe your issue')), 
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(onPressed: () async {
-            final msg = _msgController.text.trim();
+            final msg = msgController.text.trim();
             if (msg.isEmpty) return;
             try {
               await FirebaseFirestore.instance.collection('support').add({
