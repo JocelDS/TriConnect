@@ -1,12 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:triconnect/UI/driver_ui/widgets/profile_header_card.dart';
+import 'package:triconnect/UI/driver_ui/widgets/profile_info_tile.dart';
+import 'package:triconnect/UI/driver_ui/widgets/profile_menu_tile.dart';
 import 'package:triconnect/services/auth_service.dart';
 
 class DriverProfileTab extends StatelessWidget {
   const DriverProfileTab({super.key});
 
+  void _showSnack(BuildContext context, String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final authService = AuthService();
+    final user = authService.currentUser;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6FA),
@@ -16,121 +26,120 @@ class DriverProfileTab extends StatelessWidget {
         foregroundColor: Colors.white,
         elevation: 0,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1A2744),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Column(
-                children: [
-                  const CircleAvatar(
-                    radius: 36,
-                    backgroundColor: Color(0xFFE5EAF5),
-                    child: Icon(
-                      Icons.person,
-                      size: 36,
-                      color: Color(0xFF2F5BD3),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    "Juliet Roberts",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const Text(
-                    "TriConnect Partner",
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha:0.1),
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.directions_car,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          "Vecle Model 3",
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            _menuTile(Icons.person_outline, "Personal Information"),
-            _menuTile(Icons.payment_outlined, "Payout Methods"),
-            _menuTile(Icons.shield_outlined, "Insurance Policy"),
-            _menuTile(Icons.description_outlined, "Documents & Licenses"),
-            _menuTile(Icons.help_outline, "Help Center"),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  await authService.signOut();
-                  if (context.mounted) {
-                    Navigator.pushNamedAndRemoveUntil(
-                      context,
-                      '/login',
-                      (route) => false,
-                    );
-                  }
-                },
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red,
-                  side: const BorderSide(color: Colors.red),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                icon: const Icon(Icons.logout),
-                label: const Text("Log Out"),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+      body: user == null
+          ? const Center(child: Text("Sign in to view your profile."))
+          : FutureBuilder<Map<String, dynamic>?>(
+              future: authService.getUserProfile(user.uid),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF1A2744)),
+                  );
+                }
 
-  Widget _menuTile(IconData icon, String title) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha:0.05), blurRadius: 6),
-        ],
-      ),
-      child: ListTile(
-        leading: Icon(icon, color: const Color(0xFF2F5BD3)),
-        title: Text(title),
-        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-        onTap: () {},
-      ),
+                final profile = snapshot.data;
+                final name =
+                    user.displayName ??
+                    profile?['fullName'] as String? ??
+                    "Driver";
+                final email = user.email ?? "-";
+                final phone = profile?['phone'] as String? ?? "-";
+                final tricycleNumber =
+                    (profile?['tricycleNumber'] as String?) ?? '';
+                final vehicleLabel = tricycleNumber.isEmpty
+                    ? "No vehicle on file"
+                    : tricycleNumber;
+                final status = (profile?['status'] as String?) ?? "Available";
+
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      ProfileHeaderCard(
+                        name: name,
+                        vehicleLabel: vehicleLabel,
+                        status: status,
+                      ),
+                      const SizedBox(height: 20),
+                      ProfileInfoTile(
+                        icon: Icons.email_outlined,
+                        label: "Email",
+                        value: email,
+                      ),
+                      ProfileInfoTile(
+                        icon: Icons.phone_outlined,
+                        label: "Phone",
+                        value: phone,
+                      ),
+                      const SizedBox(height: 6),
+                      ProfileMenuTile(
+                        icon: Icons.person_outline,
+                        title: "Personal Information",
+                        onTap: () => _showSnack(
+                          context,
+                          "Personal Information isn't available in this demo yet.",
+                        ),
+                      ),
+                      ProfileMenuTile(
+                        icon: Icons.payment_outlined,
+                        title: "Payout Methods",
+                        onTap: () => _showSnack(
+                          context,
+                          "Payout Methods isn't available in this demo yet.",
+                        ),
+                      ),
+                      ProfileMenuTile(
+                        icon: Icons.shield_outlined,
+                        title: "Insurance Policy",
+                        onTap: () => _showSnack(
+                          context,
+                          "Insurance Policy isn't available in this demo yet.",
+                        ),
+                      ),
+                      ProfileMenuTile(
+                        icon: Icons.description_outlined,
+                        title: "Documents & Licenses",
+                        onTap: () => _showSnack(
+                          context,
+                          "Documents & Licenses isn't available in this demo yet.",
+                        ),
+                      ),
+                      ProfileMenuTile(
+                        icon: Icons.help_outline,
+                        title: "Help Center",
+                        onTap: () => _showSnack(
+                          context,
+                          "Help Center isn't available in this demo yet.",
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            await authService.signOut();
+                            if (context.mounted) {
+                              Navigator.pushNamedAndRemoveUntil(
+                                context,
+                                '/login',
+                                (route) => false,
+                              );
+                            }
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                          icon: const Icon(Icons.logout),
+                          label: const Text("Log Out"),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
     );
   }
 }

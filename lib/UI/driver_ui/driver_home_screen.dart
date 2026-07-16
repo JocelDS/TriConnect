@@ -25,13 +25,16 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       body: IndexedStack(index: _selectedTab, children: _tabs),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedTab,
-        selectedItemColor: const Color(0xFF2F5BD3),
+        selectedItemColor: Color(0xFF2F5BD3),
         unselectedItemColor: Colors.grey,
         type: BottomNavigationBarType.fixed,
         onTap: (index) => setState(() => _selectedTab = index),
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"),
-          BottomNavigationBarItem(icon: Icon(Icons.history), label: "History"),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.history),
+            label: "History",
+          ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person_outline),
             label: "Profile",

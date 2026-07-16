@@ -1,5 +1,18 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'active_trip_tab.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:triconnect/UI/driver_ui/active_trip_tab.dart';
+import 'package:triconnect/UI/driver_ui/widgets/dashboard_top_bar.dart';
+import 'package:triconnect/UI/driver_ui/widgets/earnings_card.dart';
+import 'package:triconnect/UI/driver_ui/widgets/empty_state_card.dart';
+import 'package:triconnect/UI/driver_ui/widgets/live_badge.dart';
+import 'package:triconnect/UI/driver_ui/widgets/ride_request_card.dart';
+import 'package:triconnect/UI/driver_ui/widgets/scheduled_ride_section.dart';
+import 'package:triconnect/UI/driver_ui/widgets/stat_card.dart';
+import 'package:triconnect/UI/driver_ui/widgets/traffic_map_card.dart';
+import 'package:triconnect/services/auth_service.dart';
+import 'package:triconnect/services/notification_service.dart';
 
 class DriverDashboardTab extends StatefulWidget {
   const DriverDashboardTab({super.key});
@@ -10,619 +23,272 @@ class DriverDashboardTab extends StatefulWidget {
 
 class _DriverDashboardTabState extends State<DriverDashboardTab> {
   static const _navy = Color(0xFF1A2744);
-  static const _blue = Color(0xFF2F5BD3);
+  static const LatLng _defaultCenter = LatLng(14.0703, 121.3255); // San Pablo City, PH
 
-  bool _hasRequest = true;
+  final AuthService _authService = AuthService();
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  LatLng _driverPosition = _defaultCenter;
+  bool _busy = false;
+
+  String? get _uid => _authService.currentUser?.uid;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentLocation();
+  }
+
+  Future<void> _loadCurrentLocation() async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition();
+      if (!mounted) return;
+      setState(() => _driverPosition = LatLng(position.latitude, position.longitude));
+    } catch (_) {
+      // Keep default center if location can't be resolved.
+    }
+  }
 
   void _showSnack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _declineRide() {
-    setState(() => _hasRequest = false);
-    _showSnack("Ride request declined.");
+  Future<void> _declineRide(QueryDocumentSnapshot doc) async {
+    final uid = _uid;
+    if (uid == null) return;
+    setState(() => _busy = true);
+    try {
+      await doc.reference.update({
+        'declinedBy': FieldValue.arrayUnion([uid]),
+      });
+      _showSnack("Ride request declined.");
+    } catch (e) {
+      _showSnack("Couldn't decline ride: $e");
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
-  void _acceptRide() {
-    setState(() => _hasRequest = false);
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const ActiveTripTab()),
+  Future<void> _acceptRide(QueryDocumentSnapshot doc) async {
+    final uid = _uid;
+    if (uid == null) return;
+    setState(() => _busy = true);
+    try {
+      final data = doc.data() as Map<String, dynamic>;
+      await doc.reference.update({
+        'status': 'accepted',
+        'driverId': uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      final riderId = data['userId'] as String?;
+      final destination = data['destinationAddress'] ?? data['destination'] ?? 'the destination';
+      if (riderId != null && riderId.isNotEmpty) {
+        await _db.collection('notifications').add({
+          'uid': riderId,
+          'title': 'Ride accepted',
+          'body': 'A driver accepted your ride to $destination.',
+          'read': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      NotificationService().showNotification(
+        id: 10,
+        title: 'Ride accepted',
+        body: 'You accepted a ride to $destination.',
+      );
+
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => ActiveTripTab(rideId: doc.id)),
+        );
+      }
+    } catch (e) {
+      _showSnack("Couldn't accept ride: $e");
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  _EarningsStats _computeEarningsStats(List<QueryDocumentSnapshot> historyDocs) {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+
+    double today = 0;
+    double yesterday = 0;
+
+    for (final doc in historyDocs) {
+      final data = doc.data() as Map<String, dynamic>;
+      final ts = data['completedAt'];
+      final fare = (data['fare'] as num?)?.toDouble() ?? 0.0;
+      if (ts is Timestamp) {
+        final completed = ts.toDate();
+        if (!completed.isBefore(todayStart)) {
+          today += fare;
+        } else if (!completed.isBefore(yesterdayStart) && completed.isBefore(todayStart)) {
+          yesterday += fare;
+        }
+      }
+    }
+
+    double? percentChange;
+    if (yesterday > 0) {
+      percentChange = ((today - yesterday) / yesterday) * 100;
+    }
+
+    return _EarningsStats(
+      tripCount: historyDocs.length,
+      todayEarnings: today,
+      percentChangeFromYesterday: percentChange,
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final uid = _uid;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6FA),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          children: [
-            _buildTopBar(),
-            const SizedBox(height: 18),
-            _buildEarningsCard(),
-            const SizedBox(height: 14),
+        child: uid == null
+            ? const Center(child: Text("Sign in to view your dashboard."))
+            : StreamBuilder<QuerySnapshot>(
+                stream: _db
+                    .collection('ride_history')
+                    .where('driverId', isEqualTo: uid)
+                    .snapshots(),
+                builder: (context, historySnapshot) {
+                  final historyDocs = historySnapshot.data?.docs ?? [];
+                  final stats = _computeEarningsStats(historyDocs);
 
-            // Stats row
-            Row(
-              children: [
-                Expanded(
-                  child: _statCard(
-                    icon: Icons.directions_car_filled,
-                    value: "12",
-                    label: "Trips",
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _statCard(
-                    icon: Icons.star,
-                    value: "4.95",
-                    label: "Rating",
-                    iconColor: Colors.amber,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 22),
-
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "Active Requests",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: _navy,
-                  ),
-                ),
-                if (_hasRequest) _liveBadge(),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            if (_hasRequest)
-              _rideRequestCard(
-                name: "Alex Johnson",
-                rating: "4.8",
-                distance: "2.4 miles away",
-                fare: "\$18.20",
-                pickup: "302 Market St, San Francisco",
-                destination: "Mission District, 16th St",
-              )
-            else
-              _noRequestCard(),
-            const SizedBox(height: 20),
-
-            const Text(
-              "Scheduled Ride",
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: _navy,
-              ),
-            ),
-            const SizedBox(height: 12),
-            _scheduledRideCard(),
-            const SizedBox(height: 20),
-
-            _trafficMapCard(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTopBar() {
-    return Row(
-      children: [
-        Container(
-          width: 42,
-          height: 42,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              colors: [Color(0xFF3B5B92), Color(0xFF1A2744)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-          child: const Icon(
-            Icons.directions_car,
-            color: Colors.white,
-            size: 20,
-          ),
-        ),
-        const SizedBox(width: 12),
-        const Expanded(
-          child: Text(
-            "TriConnect",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: _navy,
-            ),
-          ),
-        ),
-        InkWell(
-          borderRadius: BorderRadius.circular(24),
-          onTap: () => _showSnack("No new notifications."),
-          child: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha:0.06),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: const Icon(Icons.notifications_none, color: _navy, size: 22),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEarningsCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha:0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                "TODAY'S EARNINGS",
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                "\$142.50",
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
-                  color: _navy,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                children: const [
-                  Icon(Icons.arrow_upward, size: 14, color: Colors.green),
-                  SizedBox(width: 2),
-                  Text(
-                    "+12% from yesterday",
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.green,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: _blue.withValues(alpha:0.08),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Icons.credit_card, color: _blue, size: 20),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _statCard({
-    required IconData icon,
-    required String value,
-    required String label,
-    Color iconColor = _blue,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha:0.05), blurRadius: 8),
-        ],
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: iconColor, size: 22),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: _navy,
-            ),
-          ),
-          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-        ],
-      ),
-    );
-  }
-
-  Widget _liveBadge() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-      decoration: BoxDecoration(
-        color: _blue.withValues(alpha:0.1),
-        borderRadius: BorderRadius.circular(30),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: const [
-          Icon(Icons.circle, size: 8, color: _blue),
-          SizedBox(width: 6),
-          Text(
-            "Live",
-            style: TextStyle(
-              color: _blue,
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _noRequestCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha:0.05), blurRadius: 8),
-        ],
-      ),
-      alignment: Alignment.center,
-      child: const Text(
-        "No active ride requests right now.",
-        style: TextStyle(color: Colors.grey),
-      ),
-    );
-  }
-
-  Widget _rideRequestCard({
-    required String name,
-    required String rating,
-    required String distance,
-    required String fare,
-    required String pickup,
-    required String destination,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha:0.05), blurRadius: 8),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const CircleAvatar(
-                radius: 18,
-                backgroundColor: Color(0xFFE5EAF5),
-                child: Icon(Icons.person, color: _blue),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: _navy,
+                  return ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                    children: [
+                      DashboardTopBar(uid: uid),
+                      const SizedBox(height: 18),
+                      EarningsCard(
+                        todayEarnings: stats.todayEarnings,
+                        percentChangeFromYesterday: stats.percentChangeFromYesterday,
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        const Icon(Icons.star, size: 13, color: Colors.amber),
-                        const SizedBox(width: 3),
-                        Text(
-                          "$rating · $distance",
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey,
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: StatCard(
+                              icon: Icons.directions_car_filled,
+                              value: "${stats.tripCount}",
+                              label: "Trips",
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    fare,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: _blue,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const Text(
-                    "Estimated Fare",
-                    style: TextStyle(fontSize: 11, color: Colors.grey),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Column(
-                children: [
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: _blue, width: 2),
-                    ),
-                  ),
-                  Container(width: 2, height: 26, color: Colors.grey.shade300),
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: const BoxDecoration(
-                      color: _navy,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      "PICKUP",
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.grey,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FutureBuilder<Map<String, dynamic>?>(
+                              future: _authService.getUserProfile(uid),
+                              builder: (context, profileSnapshot) {
+                                final rating = profileSnapshot.data?['rating'];
+                                final ratingText = rating == null
+                                    ? "5.0"
+                                    : (rating as num).toStringAsFixed(2);
+                                return StatCard(
+                                  icon: Icons.star,
+                                  value: ratingText,
+                                  label: "Rating",
+                                  iconColor: Colors.amber,
+                                );
+                              },
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    Text(
-                      pickup,
-                      style: const TextStyle(fontSize: 13, color: _navy),
-                    ),
-                    const SizedBox(height: 14),
-                    const Text(
-                      "DESTINATION",
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.grey,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5,
+                      const SizedBox(height: 22),
+                      StreamBuilder<QuerySnapshot>(
+                        stream: _db
+                            .collection('rides')
+                            .where('status', isEqualTo: 'pending')
+                            .snapshots(),
+                        builder: (context, requestSnapshot) {
+                          final allPending = requestSnapshot.data?.docs ?? [];
+                          final available = allPending.where((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            final declinedBy = (data['declinedBy'] as List?) ?? [];
+                            return !declinedBy.contains(uid);
+                          }).toList();
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    "Active Requests",
+                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _navy),
+                                  ),
+                                  if (available.isNotEmpty) LiveBadge(count: available.length),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              if (!requestSnapshot.hasData)
+                                const Center(child: CircularProgressIndicator(color: _navy))
+                              else if (available.isEmpty)
+                                const EmptyStateCard(message: "No active ride requests right now.")
+                              else
+                                RideRequestCard(
+                                  doc: available.first,
+                                  driverPosition: _driverPosition,
+                                  busy: _busy,
+                                  onAccept: () => _acceptRide(available.first),
+                                  onDecline: () => _declineRide(available.first),
+                                ),
+                              const SizedBox(height: 20),
+                              const Text(
+                                "Scheduled Ride",
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _navy),
+                              ),
+                              const SizedBox(height: 12),
+                              const ScheduledRideSection(),
+                              const SizedBox(height: 20),
+                              TrafficMapCard(
+                                driverPosition: _driverPosition,
+                                pendingRides: available,
+                              ),
+                            ],
+                          );
+                        },
                       ),
-                    ),
-                    Text(
-                      destination,
-                      style: const TextStyle(fontSize: 13, color: _navy),
-                    ),
-                  ],
-                ),
+                    ],
+                  );
+                },
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _declineRide,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _navy,
-                    side: const BorderSide(color: Color(0xFFD8DEEA)),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text("Decline"),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                flex: 2,
-                child: ElevatedButton(
-                  onPressed: _acceptRide,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _navy,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text(
-                    "Accept Ride",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _scheduledRideCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha:0.05), blurRadius: 8),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF0F2F7),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(Icons.schedule, color: _navy, size: 20),
-          ),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  "Scheduled Ride",
-                  style: TextStyle(fontWeight: FontWeight.bold, color: _navy),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  "In 45 minutes · Downtown",
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ),
-          ),
-          const Text(
-            "\$24.00",
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: _navy,
-              fontSize: 15,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _trafficMapCard() {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        height: 150,
-        width: double.infinity,
-        color: const Color(0xFFEDEFF5),
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: CustomPaint(painter: _LightMapGridPainter()),
-            ),
-            Positioned(
-              left: 12,
-              bottom: 12,
-              child: Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: _blue,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  const Text(
-                    "Monitoring traffic in your area...",
-                    style: TextStyle(fontSize: 12, color: Colors.black54),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
 }
 
-class _LightMapGridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final linePaint = Paint()
-      ..color = Colors.black.withValues(alpha:0.06)
-      ..strokeWidth = 1;
+class _EarningsStats {
+  final int tripCount;
+  final double todayEarnings;
+  final double? percentChangeFromYesterday;
 
-    const spacing = 22.0;
-    for (double x = 0; x < size.width; x += spacing) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), linePaint);
-    }
-    for (double y = 0; y < size.height; y += spacing) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
-    }
-
-    final roadPaint = Paint()
-      ..color = Colors.black.withValues(alpha:0.14)
-      ..strokeWidth = 2;
-    canvas.drawLine(
-      Offset(size.width * 0.1, 0),
-      Offset(size.width * 0.5, size.height),
-      roadPaint,
-    );
-    canvas.drawLine(
-      Offset(0, size.height * 0.65),
-      Offset(size.width, size.height * 0.25),
-      roadPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _LightMapGridPainter oldDelegate) => false;
+  const _EarningsStats({
+    required this.tripCount,
+    required this.todayEarnings,
+    required this.percentChangeFromYesterday,
+  });
 }
