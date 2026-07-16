@@ -111,7 +111,7 @@ class EarningsTab extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
+                    color: Colors.black.withValues(alpha:0.05),
                     blurRadius: 8,
                   ),
                 ],
@@ -129,7 +129,7 @@ class EarningsTab extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
+                    color: Colors.black.withValues(alpha:0.05),
                     blurRadius: 8,
                   ),
                 ],
@@ -188,7 +188,7 @@ class EarningsTab extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6),
+          BoxShadow(color: Colors.black.withValues(alpha:0.05), blurRadius: 6),
         ],
       ),
       child: Row(

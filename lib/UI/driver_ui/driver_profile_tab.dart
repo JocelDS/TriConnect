@@ -58,7 +58,7 @@ class DriverProfileTab extends StatelessWidget {
                       vertical: 8,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.1),
+                      color: Colors.white.withValues(alpha:0.1),
                       borderRadius: BorderRadius.circular(30),
                     ),
                     child: const Row(
@@ -122,7 +122,7 @@ class DriverProfileTab extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6),
+          BoxShadow(color: Colors.black.withValues(alpha:0.05), blurRadius: 6),
         ],
       ),
       child: ListTile(

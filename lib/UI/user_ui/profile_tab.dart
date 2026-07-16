@@ -289,13 +289,24 @@ extension on ProfileTab {
             final fn = nameController.text.trim();
             final ph = phoneController.text.trim();
             try {
-              await FirebaseFirestore.instance.collection('users').doc(uid).update({'fullName': fn, 'phone': ph});
-              // Update display name in Firebase Auth as well
-              await FirebaseAuth.instance.currentUser?.updateDisplayName(fn);
-              Navigator.pop(context);
+              await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(uid)
+                    .update({'fullName': fn, 'phone': ph});
+
+                await FirebaseAuth.instance.currentUser?.updateDisplayName(fn);
+
+                if (!context.mounted) return;
+
+                Navigator.pop(context);
             } catch (e) {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Update failed: $e')));
+              if (!context.mounted) return;
+
+                Navigator.pop(context);
+
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('Update failed: $e')));
             }
           }, child: const Text('Save')),
         ],
@@ -318,15 +329,26 @@ extension on ProfileTab {
             if (msg.isEmpty) return;
             try {
               await FirebaseFirestore.instance.collection('support').add({
-                'uid': uid,
-                'message': msg,
-                'createdAt': FieldValue.serverTimestamp(),
-              });
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Support request sent')));
+                  'uid': uid,
+                  'message': msg,
+                  'createdAt': FieldValue.serverTimestamp(),
+                });
+
+                if (!context.mounted) return;
+
+                Navigator.pop(context);
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Support request sent')),
+                );
             } catch (e) {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to send: $e')));
+              if (!context.mounted) return;
+
+                Navigator.pop(context);
+
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('Update failed: $e')));
             }
           }, child: const Text('Send')),
         ],

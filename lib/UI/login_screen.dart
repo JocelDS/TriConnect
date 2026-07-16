@@ -53,6 +53,8 @@ class _LoginScreenState extends State<LoginScreen> {
       // Get user role from Firestore
       final role = await _authService.getUserRole(userCredential.user!.uid);
 
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("Login Successful!"),
@@ -60,7 +62,6 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
 
-      // Navigate based on role
       if (role == 'driver') {
         Navigator.pushReplacement(
           context,
@@ -73,6 +74,8 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     } catch (e) {
+      if (!mounted) return;
+
       _showMessage(_authService.getErrorMessage(e));
     } finally {
       if (mounted) {

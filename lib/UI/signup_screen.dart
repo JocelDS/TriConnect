@@ -176,58 +176,59 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
                 const SizedBox(height: 14),
 
-                /// Role Selection (moved above password)
+                /// Role Selection
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     border: Border.all(color: Colors.grey.shade300),
                     borderRadius: BorderRadius.circular(30),
                     color: Colors.white,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        "Select Role",
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
-                          fontWeight: FontWeight.w500,
+                  child: RadioGroup<String>(
+                    groupValue: selectedRole,
+                    onChanged: (String? value) {
+                      if (value == null) return;
+
+                      setState(() {
+                        selectedRole = value;
+                      });
+                    },
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Select Role",
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
-                      ),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: RadioListTile<String>(
-                              title: const Text("Customer"),
-                              value: "customer",
-                              groupValue: selectedRole,
-                              onChanged: (value) {
-                                setState(() {
-                                  selectedRole = value!;
-                                });
-                              },
-                              contentPadding: EdgeInsets.zero,
-                              dense: true,
+                        Row(
+                          children: [
+                            Expanded(
+                              child: RadioListTile<String>(
+                                title: const Text("Customer"),
+                                value: "customer",
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                              ),
                             ),
-                          ),
-                          Expanded(
-                            child: RadioListTile<String>(
-                              title: const Text("Driver"),
-                              value: "driver",
-                              groupValue: selectedRole,
-                              onChanged: (value) {
-                                setState(() {
-                                  selectedRole = value!;
-                                });
-                              },
-                              contentPadding: EdgeInsets.zero,
-                              dense: true,
+                            Expanded(
+                              child: RadioListTile<String>(
+                                title: const Text("Driver"),
+                                value: "driver",
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
 
