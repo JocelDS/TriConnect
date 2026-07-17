@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:triconnect/UI/user_ui/widgets/book_ride_dialog.dart';
 // Removed map_grid_painter; using GoogleMap for live markers.
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -28,13 +32,196 @@ class _HomeTabState extends State<HomeTab> {
   static const _navy = Color(0xFF1E3A6D);
   static const _orange = Color(0xFFFF7A30);
 
+  // Used whenever GPS can't be read (permission denied, location services
+  // off, etc.) so the customer still has a sensible starting point instead
+  // of an empty/unavailable location.
+  static const double _defaultLat = 14.0703;
+  static const double _defaultLng = 121.3255;
+  static const String _defaultAddress = "San Pablo City, Laguna, Philippines";
+
   String? _fullName;
   bool _loadingProfile = true;
+
+  String? _currentAddress;
+  double? _currentLat;
+  double? _currentLng;
+  bool _detectingLocation = true;
+
+  StreamSubscription<QuerySnapshot>? _notificationsSub;
+  bool _notificationsBaselineSet = false;
+  final Set<String> _seenNotificationIds = {};
 
   @override
   void initState() {
     super.initState();
     _loadProfile();
+    _detectCurrentLocation();
+    _listenForNewNotifications();
+  }
+
+  /// Fires a real device notification whenever a *new* document appears in
+  /// this customer's `notifications` collection (e.g. "Ride accepted",
+  /// "Trip completed" — written by the driver side). The first snapshot is
+  /// treated as a baseline so existing/old notifications don't all fire at
+  /// once when the Home tab first loads.
+  void _listenForNewNotifications() {
+    final user = widget.authService.currentUser;
+    if (user == null) return;
+
+    _notificationsSub = widget.db
+        .collection('notifications')
+        .where('uid', isEqualTo: user.uid)
+        .snapshots()
+        .listen((snapshot) {
+          if (!_notificationsBaselineSet) {
+            for (final doc in snapshot.docs) {
+              _seenNotificationIds.add(doc.id);
+            }
+            _notificationsBaselineSet = true;
+            return;
+          }
+
+          for (final change in snapshot.docChanges) {
+            if (change.type != DocumentChangeType.added) continue;
+            final doc = change.doc;
+            if (_seenNotificationIds.contains(doc.id)) continue;
+            _seenNotificationIds.add(doc.id);
+
+            final data = doc.data();
+            final title = (data?['title'] as String?) ?? 'TriConnect';
+            final body = (data?['body'] as String?) ?? '';
+            NotificationService().showNotification(
+              id: doc.id.hashCode & 0x7fffffff,
+              title: title,
+              body: body,
+            );
+          }
+        });
+  }
+
+  /// Automatically detects the customer's current location (requesting
+  /// location permission the first time) and reverse-geocodes it into a
+  /// readable address, so it's ready before they even open "Book a Ride".
+  /// The resolved address is saved onto the customer's profile so it's
+  /// available anywhere in the app.
+  Future<void> _detectCurrentLocation() async {
+    final user = widget.authService.currentUser;
+    setState(() => _detectingLocation = true);
+    try {
+      // Priority 1: the customer's saved home address, if they've set one
+      // in their profile — this is what they consider "home" and avoids
+      // relying on GPS (which can be wrong/unavailable, e.g. on emulators).
+      if (user != null) {
+        final profile = await widget.authService.getUserProfile(user.uid);
+        final homeAddress = (profile?['homeAddress'] as String?)?.trim();
+        if (homeAddress != null && homeAddress.isNotEmpty) {
+          final resolved = await _geocodeAddress(homeAddress);
+          if (resolved != null) {
+            if (!mounted) return;
+            setState(() {
+              _currentAddress = homeAddress;
+              _currentLat = resolved.latitude;
+              _currentLng = resolved.longitude;
+            });
+            await widget.authService.updateUserProfile(
+              uid: user.uid,
+              data: {
+                'lastAddress': homeAddress,
+                'lastLat': resolved.latitude,
+                'lastLng': resolved.longitude,
+                'lastLocationUpdatedAt': FieldValue.serverTimestamp(),
+              },
+            );
+            return;
+          }
+        }
+      }
+
+      // Priority 2: live GPS.
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _useDefaultLocation();
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        _useDefaultLocation();
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition();
+      final lat = position.latitude;
+      final lng = position.longitude;
+
+      String address = "${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}";
+      try {
+        final placemarks = await placemarkFromCoordinates(lat, lng);
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          final parts = [
+            p.street,
+            p.subLocality,
+            p.locality,
+            p.administrativeArea,
+          ].where((e) => e != null && e.trim().isNotEmpty).toList();
+          if (parts.isNotEmpty) address = parts.join(", ");
+        }
+      } catch (_) {
+        // Keep the coordinate fallback if reverse geocoding fails.
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _currentAddress = address;
+        _currentLat = lat;
+        _currentLng = lng;
+      });
+
+      if (user != null) {
+        await widget.authService.updateUserProfile(
+          uid: user.uid,
+          data: {
+            'lastAddress': address,
+            'lastLat': lat,
+            'lastLng': lng,
+            'lastLocationUpdatedAt': FieldValue.serverTimestamp(),
+          },
+        );
+      }
+    } catch (_) {
+      _useDefaultLocation();
+    } finally {
+      if (mounted) setState(() => _detectingLocation = false);
+    }
+  }
+
+  /// Turns a saved address string into coordinates. Returns null if the
+  /// address can't be resolved (e.g. it's too vague or geocoding fails).
+  Future<Location?> _geocodeAddress(String address) async {
+    try {
+      final results = await locationFromAddress(address);
+      if (results.isNotEmpty) return results.first;
+    } catch (_) {
+      // Fall through to null — caller will try GPS/default instead.
+    }
+    return null;
+  }
+
+  /// Falls back to a default Philippine location (San Pablo City) whenever
+  /// GPS can't be read, so the customer always has a starting point instead
+  /// of an "unavailable" state.
+  void _useDefaultLocation() {
+    if (!mounted) return;
+    setState(() {
+      _currentAddress = _defaultAddress;
+      _currentLat = _defaultLat;
+      _currentLng = _defaultLng;
+    });
   }
 
   Future<void> _loadProfile() async {
@@ -90,11 +277,158 @@ class _HomeTabState extends State<HomeTab> {
       context: context,
       db: widget.db,
       userId: user.uid,
+      initialAddress: _currentAddress,
+      initialLat: _currentLat,
+      initialLng: _currentLng,
     );
     _showSnack(
       success
           ? "Ride requested! We're matching you with a nearby driver."
           : "Couldn't book a ride. Please try again.",
+    );
+  }
+
+  void _showLearnMore() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) => ListView(
+          controller: scrollController,
+          padding: const EdgeInsets.all(24),
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              "About TriConnect",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: _navy,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              "TriConnect connects you with nearby tricycle drivers for quick, "
+              "affordable trips around your area — no haggling, no guesswork.",
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.5,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 20),
+            _learnMoreItem(
+              icon: Icons.my_location,
+              title: "Automatic pickup detection",
+              body:
+                  "We detect your location (or use your saved home address) so pickup is pre-filled when you book.",
+            ),
+            _learnMoreItem(
+              icon: Icons.payments_outlined,
+              title: "Upfront fares in ₱",
+              body:
+                  "See your estimated fare before you request a ride — no surprises when you arrive.",
+            ),
+            _learnMoreItem(
+              icon: Icons.directions_car_filled,
+              title: "Real drivers, real time",
+              body:
+                  "Requests go out to nearby drivers instantly, and you can track your trip as it happens.",
+            ),
+            _learnMoreItem(
+              icon: Icons.shield_outlined,
+              title: "Built for your area",
+              body:
+                  "TriConnect is designed around everyday tricycle routes, not long-haul rideshare.",
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 46,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _bookRide();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _navy,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                child: const Text(
+                  "Book a Ride",
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _learnMoreItem({
+    required IconData icon,
+    required String title,
+    required String body,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: _orange.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 18, color: _orange),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  body,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.black54,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -161,6 +495,12 @@ class _HomeTabState extends State<HomeTab> {
   }
 
   @override
+  void dispose() {
+    _notificationsSub?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: _loadProfile,
@@ -196,7 +536,7 @@ class _HomeTabState extends State<HomeTab> {
           onTap: _confirmSignOut,
           child: CircleAvatar(
             radius: 22,
-            backgroundColor: _navy.withValues(alpha: 0.1),
+                backgroundColor: _navy.withValues(alpha: 0.1),
             child: const Icon(Icons.person, color: _navy),
           ),
         ),
@@ -317,11 +657,46 @@ class _HomeTabState extends State<HomeTab> {
               ],
             ),
           ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: _navy.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  _detectingLocation ? Icons.my_location : Icons.location_on,
+                  size: 18,
+                  color: _orange,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _detectingLocation
+                      ? const Text(
+                          "Detecting your location...",
+                          style: TextStyle(fontSize: 12, color: Colors.black54),
+                        )
+                      : Text(
+                          _currentAddress ??
+                              "Location unavailable — set it when booking a ride.",
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 16),
           SizedBox(
             height: 46,
             child: ElevatedButton(
-              onPressed: _bookRide,
+              onPressed: _showLearnMore,
               style: ElevatedButton.styleFrom(
                 backgroundColor: _navy,
                 foregroundColor: Colors.white,
@@ -332,7 +707,7 @@ class _HomeTabState extends State<HomeTab> {
                 ),
               ),
               child: const Text(
-                "Book a Ride",
+                "Learn More",
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
@@ -408,23 +783,59 @@ class _HomeTabState extends State<HomeTab> {
                     .where('status', isEqualTo: 'pending')
                     .snapshots(),
                 builder: (context, snapshot) {
+                  if (_detectingLocation) {
+                    return const Center(
+                      child: SizedBox(
+                        height: 22,
+                        width: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    );
+                  }
+
+                  final centerLat = _currentLat ?? _defaultLat;
+                  final centerLng = _currentLng ?? _defaultLng;
                   final initial = CameraPosition(
-                    target: LatLng(14.0703, 121.3255),
+                    target: LatLng(centerLat, centerLng),
                     zoom: 13,
                   );
 
-                  final markers = <Marker>{};
+                  final markers = <Marker>{
+                    Marker(
+                      markerId: const MarkerId('me'),
+                      position: LatLng(centerLat, centerLng),
+                      icon: BitmapDescriptor.defaultMarkerWithHue(
+                        BitmapDescriptor.hueBlue,
+                      ),
+                      infoWindow: const InfoWindow(title: 'You'),
+                    ),
+                  };
                   if (snapshot.hasData) {
                     for (final doc in snapshot.data!.docs) {
                       final data = doc.data() as Map<String, dynamic>;
-                      final lat = (data['destinationLat'] ?? data['destination_lat'] ?? data['destinationLatitude']) as double?;
-                      final lng = (data['destinationLng'] ?? data['destination_lng'] ?? data['destinationLongitude']) as double?;
+                      final lat =
+                          (data['destinationLat'] ??
+                                  data['destination_lat'] ??
+                                  data['destinationLatitude'])
+                              as double?;
+                      final lng =
+                          (data['destinationLng'] ??
+                                  data['destination_lng'] ??
+                                  data['destinationLongitude'])
+                              as double?;
                       if (lat != null && lng != null) {
-                        markers.add(Marker(
-                          markerId: MarkerId(doc.id),
-                          position: LatLng(lat, lng),
-                          infoWindow: InfoWindow(title: data['destination'] ?? 'Ride'),
-                        ));
+                        markers.add(
+                          Marker(
+                            markerId: MarkerId(doc.id),
+                            position: LatLng(lat, lng),
+                            infoWindow: InfoWindow(
+                              title: data['destination'] ?? 'Ride',
+                            ),
+                          ),
+                        );
                       }
                     }
                   }
@@ -458,18 +869,18 @@ class _HomeTabState extends State<HomeTab> {
                     stream: user == null
                         ? const Stream.empty()
                         : widget.db
-                            .collection('rides')
-                            .where('userId', isEqualTo: user.uid)
-                            .where('status', whereIn: const ['pending', 'accepted'])
-                            .snapshots(),
+                              .collection('rides')
+                              .where('userId', isEqualTo: user.uid)
+                              .where(
+                                'status',
+                                whereIn: const ['pending', 'accepted'],
+                              )
+                              .snapshots(),
                     builder: (context, snapshot) {
                       if (user == null) {
                         return const Text(
                           "Sign in to track your ride.",
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                          ),
+                          style: TextStyle(color: Colors.white70, fontSize: 12),
                         );
                       }
 
@@ -480,10 +891,7 @@ class _HomeTabState extends State<HomeTab> {
                       if (count == 0) {
                         return const Text(
                           "No active ride requests.",
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                          ),
+                          style: TextStyle(color: Colors.white70, fontSize: 12),
                         );
                       }
 
@@ -593,9 +1001,11 @@ class _CurrentRideSheetState extends State<_CurrentRideSheet> {
                   }
                   final doc = docs.first;
                   final ride = doc.data() as Map<String, dynamic>;
-                  final status = ((ride['status'] ?? 'pending') as String).toLowerCase();
+                  final status = ((ride['status'] ?? 'pending') as String)
+                      .toLowerCase();
                   final pickup = ride['pickupAddress'] ?? ride['pickup'] ?? '-';
-                  final destination = ride['destinationAddress'] ?? ride['destination'] ?? '-';
+                  final destination =
+                      ride['destinationAddress'] ?? ride['destination'] ?? '-';
                   final driver = ride['driverId'] as String?;
 
                   // notify on status change
@@ -656,24 +1066,36 @@ class _CurrentRideSheetState extends State<_CurrentRideSheet> {
                                         try {
                                           await doc.reference.update({
                                             'status': 'cancelled',
-                                            'updatedAt': FieldValue.serverTimestamp(),
+                                            'updatedAt':
+                                                FieldValue.serverTimestamp(),
                                           });
-                                          await widget.db.collection('notifications').add({
-                                            'uid': widget.uid,
-                                            'title': 'Ride cancelled',
-                                            'body': 'You cancelled your ride to $destination.',
-                                            'read': false,
-                                            'createdAt': FieldValue.serverTimestamp(),
-                                          });
+                                          await widget.db
+                                              .collection('notifications')
+                                              .add({
+                                                'uid': widget.uid,
+                                                'title': 'Ride cancelled',
+                                                'body':
+                                                    'You cancelled your ride to $destination.',
+                                                'read': false,
+                                                'createdAt':
+                                                    FieldValue.serverTimestamp(),
+                                              });
                                           NotificationService().showNotification(
                                             id: 3,
                                             title: 'Cancelled',
-                                            body: 'Your ride request was cancelled.',
+                                            body:
+                                                'Your ride request was cancelled.',
                                           );
                                         } catch (e) {
                                           if (context.mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(content: Text('Cancellation failed: $e')),
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  'Cancellation failed: $e',
+                                                ),
+                                              ),
                                             );
                                           }
                                         }
@@ -726,18 +1148,10 @@ class _InfoTile extends StatelessWidget {
         children: [
           Text(
             label,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade600,
-            ),
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 6),
-          Text(
-            value,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),
     );

@@ -49,7 +49,7 @@ class ProfileHeaderCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.1),
+              color: Colors.white.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(30),
             ),
             child: Row(
@@ -66,8 +66,8 @@ class ProfileHeaderCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
               color: isAvailable
-                  ? Colors.greenAccent.withOpacity(0.2)
-                  : Colors.orangeAccent.withOpacity(0.2),
+                  ? Colors.greenAccent.withValues(alpha: 0.2)
+                  : Colors.orangeAccent.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(

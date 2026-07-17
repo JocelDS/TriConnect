@@ -62,6 +62,24 @@ class AuthService {
     return null;
   }
 
+  Future<void> updateUserProfile({
+    required String uid,
+    Map<String, dynamic> data = const {},
+  }) async {
+    if (data.isEmpty) return;
+    await _firestore
+        .collection('users')
+        .doc(uid)
+        .set(data, SetOptions(merge: true));
+
+    final fullName = data['fullName'];
+    if (fullName is String &&
+        fullName.trim().isNotEmpty &&
+        currentUser != null) {
+      await currentUser!.updateDisplayName(fullName.trim());
+    }
+  }
+
   Future<String?> getUserRole(String uid) async {
     final doc = await _firestore.collection('users').doc(uid).get();
 

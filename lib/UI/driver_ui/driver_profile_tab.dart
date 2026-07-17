@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:triconnect/UI/driver_ui/widgets/documents_licenses_screen.dart';
+import 'package:triconnect/UI/driver_ui/widgets/help_center_screen.dart';
+import 'package:triconnect/UI/driver_ui/widgets/insurance_policy_screen.dart';
+import 'package:triconnect/UI/driver_ui/widgets/payout_methods_screen.dart';
+import 'package:triconnect/UI/driver_ui/widgets/personal_info_screen.dart';
 import 'package:triconnect/UI/driver_ui/widgets/profile_header_card.dart';
 import 'package:triconnect/UI/driver_ui/widgets/profile_info_tile.dart';
 import 'package:triconnect/UI/driver_ui/widgets/profile_menu_tile.dart';
@@ -6,12 +11,6 @@ import 'package:triconnect/services/auth_service.dart';
 
 class DriverProfileTab extends StatelessWidget {
   const DriverProfileTab({super.key});
-
-  void _showSnack(BuildContext context, String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,84 +31,64 @@ class DriverProfileTab extends StatelessWidget {
               future: authService.getUserProfile(user.uid),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: Color(0xFF1A2744)),
-                  );
+                  return const Center(child: CircularProgressIndicator(color: Color(0xFF1A2744)));
                 }
 
                 final profile = snapshot.data;
-                final name =
-                    user.displayName ??
-                    profile?['fullName'] as String? ??
-                    "Driver";
+                final name = user.displayName ?? profile?['fullName'] as String? ?? "Driver";
                 final email = user.email ?? "-";
                 final phone = profile?['phone'] as String? ?? "-";
-                final tricycleNumber =
-                    (profile?['tricycleNumber'] as String?) ?? '';
-                final vehicleLabel = tricycleNumber.isEmpty
-                    ? "No vehicle on file"
-                    : tricycleNumber;
+                final tricycleNumber = (profile?['tricycleNumber'] as String?) ?? '';
+                final vehicleLabel = tricycleNumber.isEmpty ? "No vehicle on file" : tricycleNumber;
                 final status = (profile?['status'] as String?) ?? "Available";
 
                 return SingleChildScrollView(
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      ProfileHeaderCard(
-                        name: name,
-                        vehicleLabel: vehicleLabel,
-                        status: status,
-                      ),
+                      ProfileHeaderCard(name: name, vehicleLabel: vehicleLabel, status: status),
                       const SizedBox(height: 20),
-                      ProfileInfoTile(
-                        icon: Icons.email_outlined,
-                        label: "Email",
-                        value: email,
-                      ),
-                      ProfileInfoTile(
-                        icon: Icons.phone_outlined,
-                        label: "Phone",
-                        value: phone,
-                      ),
+                      ProfileInfoTile(icon: Icons.email_outlined, label: "Email", value: email),
+                      ProfileInfoTile(icon: Icons.phone_outlined, label: "Phone", value: phone),
                       const SizedBox(height: 6),
                       ProfileMenuTile(
                         icon: Icons.person_outline,
                         title: "Personal Information",
-                        onTap: () => _showSnack(
+                        onTap: () => Navigator.push(
                           context,
-                          "Personal Information isn't available in this demo yet.",
+                          MaterialPageRoute(builder: (_) => const PersonalInfoScreen()),
                         ),
                       ),
                       ProfileMenuTile(
                         icon: Icons.payment_outlined,
                         title: "Payout Methods",
-                        onTap: () => _showSnack(
+                        onTap: () => Navigator.push(
                           context,
-                          "Payout Methods isn't available in this demo yet.",
+                          MaterialPageRoute(builder: (_) => const PayoutMethodsScreen()),
                         ),
                       ),
                       ProfileMenuTile(
                         icon: Icons.shield_outlined,
                         title: "Insurance Policy",
-                        onTap: () => _showSnack(
+                        onTap: () => Navigator.push(
                           context,
-                          "Insurance Policy isn't available in this demo yet.",
+                          MaterialPageRoute(builder: (_) => const InsurancePolicyScreen()),
                         ),
                       ),
                       ProfileMenuTile(
                         icon: Icons.description_outlined,
                         title: "Documents & Licenses",
-                        onTap: () => _showSnack(
+                        onTap: () => Navigator.push(
                           context,
-                          "Documents & Licenses isn't available in this demo yet.",
+                          MaterialPageRoute(builder: (_) => const DocumentsLicensesScreen()),
                         ),
                       ),
                       ProfileMenuTile(
                         icon: Icons.help_outline,
                         title: "Help Center",
-                        onTap: () => _showSnack(
+                        onTap: () => Navigator.push(
                           context,
-                          "Help Center isn't available in this demo yet.",
+                          MaterialPageRoute(builder: (_) => const HelpCenterScreen()),
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -119,11 +98,7 @@ class DriverProfileTab extends StatelessWidget {
                           onPressed: () async {
                             await authService.signOut();
                             if (context.mounted) {
-                              Navigator.pushNamedAndRemoveUntil(
-                                context,
-                                '/login',
-                                (route) => false,
-                              );
+                              Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
                             }
                           },
                           style: OutlinedButton.styleFrom(

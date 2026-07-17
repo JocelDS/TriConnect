@@ -18,8 +18,9 @@ class CompletedTripTile extends StatelessWidget {
     final timeText = "$hour:$minute $period";
 
     if (day == today) return "Today, $timeText";
-    if (day == today.subtract(const Duration(days: 1)))
+    if (day == today.subtract(const Duration(days: 1))) {
       return "Yesterday, $timeText";
+    }
     return "${dt.month}/${dt.day}, $timeText";
   }
 
@@ -39,7 +40,7 @@ class CompletedTripTile extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6),
         ],
       ),
       child: Row(

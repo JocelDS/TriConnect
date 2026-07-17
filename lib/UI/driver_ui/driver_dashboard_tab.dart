@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -23,7 +25,10 @@ class DriverDashboardTab extends StatefulWidget {
 
 class _DriverDashboardTabState extends State<DriverDashboardTab> {
   static const _navy = Color(0xFF1A2744);
-  static const LatLng _defaultCenter = LatLng(14.0703, 121.3255); // San Pablo City, PH
+  static const LatLng _defaultCenter = LatLng(
+    14.0703,
+    121.3255,
+  ); // San Pablo City, PH
 
   final AuthService _authService = AuthService();
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -31,12 +36,68 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
   LatLng _driverPosition = _defaultCenter;
   bool _busy = false;
 
+  StreamSubscription<QuerySnapshot>? _pendingRidesSub;
+  bool _pendingRidesBaselineSet = false;
+  final Set<String> _seenPendingRideIds = {};
+
   String? get _uid => _authService.currentUser?.uid;
 
   @override
   void initState() {
     super.initState();
     _loadCurrentLocation();
+    _listenForNewRideRequests();
+  }
+
+  @override
+  void dispose() {
+    _pendingRidesSub?.cancel();
+    super.dispose();
+  }
+
+  /// Fires a real device notification whenever a genuinely *new* pending
+  /// ride request comes in, so a driver gets alerted even while looking at
+  /// another tab (the dashboard stays mounted in the background). The
+  /// first snapshot is a baseline — existing pending rides don't all fire
+  /// at once when the dashboard first loads.
+  void _listenForNewRideRequests() {
+    _pendingRidesSub = _db
+        .collection('rides')
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .listen((snapshot) {
+          final uid = _uid;
+
+          if (!_pendingRidesBaselineSet) {
+            for (final doc in snapshot.docs) {
+              _seenPendingRideIds.add(doc.id);
+            }
+            _pendingRidesBaselineSet = true;
+            return;
+          }
+
+          for (final change in snapshot.docChanges) {
+            if (change.type != DocumentChangeType.added) continue;
+            final doc = change.doc;
+            if (_seenPendingRideIds.contains(doc.id)) continue;
+            _seenPendingRideIds.add(doc.id);
+
+            final data = doc.data();
+            final declinedBy = (data?['declinedBy'] as List?) ?? [];
+            if (uid != null && declinedBy.contains(uid)) continue;
+
+            final destination =
+                (data?['destinationAddress'] ??
+                        data?['destination'] ??
+                        'a nearby destination')
+                    as String;
+            NotificationService().showNotification(
+              id: doc.id.hashCode & 0x7fffffff,
+              title: 'New ride request',
+              body: 'A rider is requesting a trip to $destination.',
+            );
+          }
+        });
   }
 
   Future<void> _loadCurrentLocation() async {
@@ -55,7 +116,9 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
 
       final position = await Geolocator.getCurrentPosition();
       if (!mounted) return;
-      setState(() => _driverPosition = LatLng(position.latitude, position.longitude));
+      setState(
+        () => _driverPosition = LatLng(position.latitude, position.longitude),
+      );
     } catch (_) {
       // Keep default center if location can't be resolved.
     }
@@ -63,7 +126,9 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
 
   void _showSnack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _declineRide(QueryDocumentSnapshot doc) async {
@@ -95,7 +160,10 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
       });
 
       final riderId = data['userId'] as String?;
-      final destination = data['destinationAddress'] ?? data['destination'] ?? 'the destination';
+      final destination =
+          data['destinationAddress'] ??
+          data['destination'] ??
+          'the destination';
       if (riderId != null && riderId.isNotEmpty) {
         await _db.collection('notifications').add({
           'uid': riderId,
@@ -125,7 +193,9 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
     }
   }
 
-  _EarningsStats _computeEarningsStats(List<QueryDocumentSnapshot> historyDocs) {
+  _EarningsStats _computeEarningsStats(
+    List<QueryDocumentSnapshot> historyDocs,
+  ) {
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
     final yesterdayStart = todayStart.subtract(const Duration(days: 1));
@@ -141,7 +211,8 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
         final completed = ts.toDate();
         if (!completed.isBefore(todayStart)) {
           today += fare;
-        } else if (!completed.isBefore(yesterdayStart) && completed.isBefore(todayStart)) {
+        } else if (!completed.isBefore(yesterdayStart) &&
+            completed.isBefore(todayStart)) {
           yesterday += fare;
         }
       }
@@ -184,7 +255,8 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                       const SizedBox(height: 18),
                       EarningsCard(
                         todayEarnings: stats.todayEarnings,
-                        percentChangeFromYesterday: stats.percentChangeFromYesterday,
+                        percentChangeFromYesterday:
+                            stats.percentChangeFromYesterday,
                       ),
                       const SizedBox(height: 14),
                       Row(
@@ -226,7 +298,8 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                           final allPending = requestSnapshot.data?.docs ?? [];
                           final available = allPending.where((doc) {
                             final data = doc.data() as Map<String, dynamic>;
-                            final declinedBy = (data['declinedBy'] as List?) ?? [];
+                            final declinedBy =
+                                (data['declinedBy'] as List?) ?? [];
                             return !declinedBy.contains(uid);
                           }).toList();
 
@@ -234,32 +307,49 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   const Text(
                                     "Active Requests",
-                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _navy),
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: _navy,
+                                    ),
                                   ),
-                                  if (available.isNotEmpty) LiveBadge(count: available.length),
+                                  if (available.isNotEmpty)
+                                    LiveBadge(count: available.length),
                                 ],
                               ),
                               const SizedBox(height: 12),
                               if (!requestSnapshot.hasData)
-                                const Center(child: CircularProgressIndicator(color: _navy))
+                                const Center(
+                                  child: CircularProgressIndicator(
+                                    color: _navy,
+                                  ),
+                                )
                               else if (available.isEmpty)
-                                const EmptyStateCard(message: "No active ride requests right now.")
+                                const EmptyStateCard(
+                                  message: "No active ride requests right now.",
+                                )
                               else
                                 RideRequestCard(
                                   doc: available.first,
                                   driverPosition: _driverPosition,
                                   busy: _busy,
                                   onAccept: () => _acceptRide(available.first),
-                                  onDecline: () => _declineRide(available.first),
+                                  onDecline: () =>
+                                      _declineRide(available.first),
                                 ),
                               const SizedBox(height: 20),
                               const Text(
                                 "Scheduled Ride",
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _navy),
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: _navy,
+                                ),
                               ),
                               const SizedBox(height: 12),
                               const ScheduledRideSection(),

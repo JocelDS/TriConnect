@@ -11,7 +11,7 @@ class LiveBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       decoration: BoxDecoration(
-        color: const Color(0xFF2F5BD3).withOpacity(0.1),
+        color: Color(0xFF2F5BD3).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(30),
       ),
       child: Row(

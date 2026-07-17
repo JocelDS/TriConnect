@@ -19,13 +19,44 @@ class _EarningsTabState extends State<EarningsTab> {
   final AuthService _authService = AuthService();
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
+  bool _cashingOut = false;
+
   String? get _uid => _authService.currentUser?.uid;
 
   void _showSnack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _cashOut(List<QueryDocumentSnapshot> unpaidDocs, double amount) async {
+    final uid = _uid;
+    if (uid == null || unpaidDocs.isEmpty) return;
+
+    setState(() => _cashingOut = true);
+    try {
+      final batch = _db.batch();
+      for (final doc in unpaidDocs) {
+        batch.update(doc.reference, {
+          'paidOut': true,
+          'paidOutAt': FieldValue.serverTimestamp(),
+        });
+      }
+      final payoutRef = _db.collection('payouts').doc();
+      batch.set(payoutRef, {
+        'driverId': uid,
+        'amount': amount,
+        'tripCount': unpaidDocs.length,
+        'requestedAt': FieldValue.serverTimestamp(),
+        'status': 'pending',
+      });
+      await batch.commit();
+
+      _showSnack("Cash out requested for ₱${amount.toStringAsFixed(2)}.");
+    } catch (e) {
+      _showSnack("Couldn't process cash out: $e");
+    } finally {
+      if (mounted) setState(() => _cashingOut = false);
+    }
   }
 
   @override
@@ -52,23 +83,18 @@ class _EarningsTabState extends State<EarningsTab> {
                   return Center(child: Text("Error: ${snapshot.error}"));
                 }
                 if (!snapshot.hasData) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: _navy),
-                  );
+                  return const Center(child: CircularProgressIndicator(color: _navy));
                 }
 
-                final docs =
-                    List<QueryDocumentSnapshot>.from(snapshot.data!.docs)
-                      ..sort((a, b) {
-                        final aTime =
-                            (a.data() as Map<String, dynamic>)['completedAt'];
-                        final bTime =
-                            (b.data() as Map<String, dynamic>)['completedAt'];
-                        if (aTime is Timestamp && bTime is Timestamp) {
-                          return bTime.compareTo(aTime);
-                        }
-                        return 0;
-                      });
+                final docs = List<QueryDocumentSnapshot>.from(snapshot.data!.docs)
+                  ..sort((a, b) {
+                    final aTime = (a.data() as Map<String, dynamic>)['completedAt'];
+                    final bTime = (b.data() as Map<String, dynamic>)['completedAt'];
+                    if (aTime is Timestamp && bTime is Timestamp) {
+                      return bTime.compareTo(aTime);
+                    }
+                    return 0;
+                  });
 
                 final stats = _computeStats(docs);
 
@@ -81,17 +107,14 @@ class _EarningsTabState extends State<EarningsTab> {
                         today: stats.today,
                         thisWeek: stats.thisWeek,
                         total: stats.total,
-                        onCashOut: () => _showSnack(
-                          "Cash out requested for ₱${stats.total.toStringAsFixed(2)}. This is a demo action.",
-                        ),
+                        availableBalance: stats.availableBalance,
+                        cashingOut: _cashingOut,
+                        onCashOut: () => _cashOut(stats.unpaidDocs, stats.availableBalance),
                       ),
                       const SizedBox(height: 20),
                       const Text(
                         "Earnings Trends",
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 12),
                       EarningsTrendChart(dailyTotals: stats.dailyTotals),
@@ -101,15 +124,9 @@ class _EarningsTabState extends State<EarningsTab> {
                         children: [
                           const Text(
                             "Completed Trips",
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                           ),
-                          Text(
-                            "${docs.length} total",
-                            style: const TextStyle(color: _blue, fontSize: 13),
-                          ),
+                          Text("${docs.length} total", style: const TextStyle(color: _blue, fontSize: 13)),
                         ],
                       ),
                       const SizedBox(height: 12),
@@ -121,22 +138,14 @@ class _EarningsTabState extends State<EarningsTab> {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(14),
                             boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
-                                blurRadius: 6,
-                              ),
+                              BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6),
                             ],
                           ),
                           alignment: Alignment.center,
-                          child: const Text(
-                            "No completed trips yet.",
-                            style: TextStyle(color: Colors.grey),
-                          ),
+                          child: const Text("No completed trips yet.", style: TextStyle(color: Colors.grey)),
                         )
                       else
-                        ...docs
-                            .take(20)
-                            .map((doc) => CompletedTripTile(doc: doc)),
+                        ...docs.take(20).map((doc) => CompletedTripTile(doc: doc)),
                     ],
                   ),
                 );
@@ -153,13 +162,21 @@ class _EarningsTabState extends State<EarningsTab> {
     double today = 0;
     double thisWeek = 0;
     double total = 0;
+    double availableBalance = 0;
+    final unpaidDocs = <QueryDocumentSnapshot>[];
     final dailyTotals = List<double>.filled(7, 0);
 
     for (final doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
       final fare = (data['fare'] as num?)?.toDouble() ?? 0.0;
       final ts = data['completedAt'];
+      final paidOut = data['paidOut'] == true;
       total += fare;
+
+      if (!paidOut) {
+        availableBalance += fare;
+        unpaidDocs.add(doc);
+      }
 
       if (ts is Timestamp) {
         final completed = ts.toDate();
@@ -170,11 +187,7 @@ class _EarningsTabState extends State<EarningsTab> {
           thisWeek += fare;
         }
 
-        final dayStart = DateTime(
-          completed.year,
-          completed.month,
-          completed.day,
-        );
+        final dayStart = DateTime(completed.year, completed.month, completed.day);
         final daysAgo = todayStart.difference(dayStart).inDays;
         if (daysAgo >= 0 && daysAgo < 7) {
           dailyTotals[6 - daysAgo] += fare;
@@ -186,6 +199,8 @@ class _EarningsTabState extends State<EarningsTab> {
       today: today,
       thisWeek: thisWeek,
       total: total,
+      availableBalance: availableBalance,
+      unpaidDocs: unpaidDocs,
       dailyTotals: dailyTotals,
     );
   }
@@ -195,12 +210,16 @@ class _EarningsSummary {
   final double today;
   final double thisWeek;
   final double total;
+  final double availableBalance;
+  final List<QueryDocumentSnapshot> unpaidDocs;
   final List<double> dailyTotals;
 
   const _EarningsSummary({
     required this.today,
     required this.thisWeek,
     required this.total,
+    required this.availableBalance,
+    required this.unpaidDocs,
     required this.dailyTotals,
   });
 }

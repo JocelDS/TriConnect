@@ -203,7 +203,7 @@ class _DriverQueueSheetState extends State<DriverQueueSheet> {
             Center(
               child: CircleAvatar(
                 radius: 40,
-                backgroundColor: const Color(0xFF2F5BD3).withValues(alpha: 0.1),
+                backgroundColor: Color(0xFF2F5BD3).withValues(alpha: 0.1),
                 child: const Icon(
                   Icons.person,
                   color: Color(0xFF2F5BD3),
