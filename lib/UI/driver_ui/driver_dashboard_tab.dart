@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart' as geocoding;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:triconnect/UI/driver_ui/active_trip_tab.dart';
 import 'package:triconnect/UI/driver_ui/widgets/dashboard_top_bar.dart';
@@ -10,7 +11,6 @@ import 'package:triconnect/UI/driver_ui/widgets/earnings_card.dart';
 import 'package:triconnect/UI/driver_ui/widgets/empty_state_card.dart';
 import 'package:triconnect/UI/driver_ui/widgets/live_badge.dart';
 import 'package:triconnect/UI/driver_ui/widgets/ride_request_card.dart';
-import 'package:triconnect/UI/driver_ui/widgets/scheduled_ride_section.dart';
 import 'package:triconnect/UI/driver_ui/widgets/stat_card.dart';
 import 'package:triconnect/UI/driver_ui/widgets/traffic_map_card.dart';
 import 'package:triconnect/services/auth_service.dart';
@@ -35,24 +35,73 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
 
   LatLng _driverPosition = _defaultCenter;
   bool _busy = false;
+  bool _hasProfileAnchor = false;
 
   StreamSubscription<QuerySnapshot>? _pendingRidesSub;
   bool _pendingRidesBaselineSet = false;
   final Set<String> _seenPendingRideIds = {};
+
+  StreamSubscription<Position>? _positionSub;
 
   String? get _uid => _authService.currentUser?.uid;
 
   @override
   void initState() {
     super.initState();
-    _loadCurrentLocation();
+    _initializeDashboardLocation();
     _listenForNewRideRequests();
+  }
+
+  Future<void> _initializeDashboardLocation() async {
+    await _loadDriverPositionFromProfile();
+    if (!mounted) return;
+    await _loadCurrentLocation();
+    await _startLiveLocationTracking();
   }
 
   @override
   void dispose() {
     _pendingRidesSub?.cancel();
+    _positionSub?.cancel();
     super.dispose();
+  }
+
+  /// Keeps `_driverPosition` continuously in sync with the device's GPS so
+  /// the map can follow the driver while still preserving the profile-based
+  /// home address as the primary anchor when available.
+  Future<void> _startLiveLocationTracking() async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+
+      _positionSub =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: 15, // meters between updates
+            ),
+          ).listen((position) {
+            if (!mounted) return;
+            if (_hasProfileAnchor) return;
+            setState(() {
+              _driverPosition = LatLng(
+                position.latitude,
+                position.longitude,
+              );
+            });
+          });
+    } catch (_) {
+      // Keep whatever position we already have if the stream can't start.
+    }
   }
 
   /// Fires a real device notification whenever a genuinely *new* pending
@@ -116,11 +165,114 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
 
       final position = await Geolocator.getCurrentPosition();
       if (!mounted) return;
-      setState(
-        () => _driverPosition = LatLng(position.latitude, position.longitude),
-      );
+      if (_hasProfileAnchor) return;
+      setState(() {
+        if (_driverPosition == _defaultCenter) {
+          _driverPosition = LatLng(position.latitude, position.longitude);
+        }
+      });
     } catch (_) {
       // Keep default center if location can't be resolved.
+    }
+  }
+
+  Future<LatLng?> _resolveAddressToPosition(String address) async {
+    final cleaned = address.trim();
+    if (cleaned.isEmpty) return null;
+
+    final candidates = <String>{
+      cleaned,
+      cleaned.replaceAll(RegExp(r'\s+'), ' '),
+      '$cleaned, Philippines',
+      '$cleaned, Batangas, Philippines',
+      cleaned.replaceAll(RegExp(r'\s*,\s*'), ', '),
+      cleaned.replaceAll(RegExp(r'\s+'), ' '),
+    }.toList();
+
+    for (final candidate in candidates) {
+      try {
+        final locations = await geocoding.locationFromAddress(candidate);
+        if (locations.isNotEmpty) {
+          final loc = locations.first;
+          return LatLng(loc.latitude, loc.longitude);
+        }
+      } catch (_) {
+        // Try the next candidate if this one fails.
+      }
+    }
+
+    return null;
+  }
+
+  /// Load the driver's saved position from their user profile in Firestore.
+  /// Prefer stored numeric fields (`driverLat`/`driverLng` or `lat`/`lng`),
+  /// otherwise attempt to forward-geocode the saved address fields.
+  Future<void> _loadDriverPositionFromProfile() async {
+    try {
+      final uid = _authService.currentUser?.uid;
+      if (uid == null) return;
+      final profile = await _authService.getUserProfile(uid);
+      if (profile == null) return;
+
+      // Check for a saved GeoPoint first.
+      final geoPoint = profile['location'] ??
+          profile['geoPoint'] ??
+          profile['homeLocation'] ??
+          profile['driverLocation'];
+      if (geoPoint is GeoPoint) {
+        if (!mounted) return;
+        setState(() {
+          _hasProfileAnchor = true;
+          _driverPosition = LatLng(geoPoint.latitude, geoPoint.longitude);
+        });
+        return;
+      }
+
+      // Check for numeric lat/lng stored in user doc.
+      final lat = (profile['driverLat'] ??
+              profile['lat'] ??
+              profile['homeLat'] ??
+              profile['latitude'] ??
+              profile['lastLat']) as num?;
+      final lng = (profile['driverLng'] ??
+              profile['lng'] ??
+              profile['homeLng'] ??
+              profile['longitude'] ??
+              profile['lastLng']) as num?;
+      if (lat != null && lng != null) {
+        if (!mounted) return;
+        setState(() {
+          _hasProfileAnchor = true;
+          _driverPosition = LatLng(lat.toDouble(), lng.toDouble());
+        });
+        return;
+      }
+
+      // If no stored coordinates, try forward geocoding the saved address fields.
+      final addressCandidates = <String?>[
+        profile['address'] as String?,
+        profile['homeAddress'] as String?,
+        profile['fullAddress'] as String?,
+        profile['locationAddress'] as String?,
+        profile['lastAddress'] as String?,
+      ];
+
+      for (final rawAddress in addressCandidates) {
+        final address = rawAddress?.trim();
+        if (address == null || address.isEmpty) continue;
+
+        final resolved = await _resolveAddressToPosition(address);
+        if (resolved != null) {
+          if (!mounted) return;
+          setState(() {
+            _hasProfileAnchor = true;
+            _driverPosition = resolved;
+          });
+          return;
+        }
+      }
+    } catch (_) {
+      // Non-fatal — leave center at default or GPS-derived position.
     }
   }
 
@@ -343,21 +495,11 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                                       _declineRide(available.first),
                                 ),
                               const SizedBox(height: 20),
-                              const Text(
-                                "Scheduled Ride",
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: _navy,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              const ScheduledRideSection(),
-                              const SizedBox(height: 20),
                               TrafficMapCard(
                                 driverPosition: _driverPosition,
                                 pendingRides: available,
                               ),
+                              const SizedBox(height: 8),
                             ],
                           );
                         },

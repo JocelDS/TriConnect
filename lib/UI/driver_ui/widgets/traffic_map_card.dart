@@ -28,15 +28,20 @@ class _TrafficMapCardState extends State<TrafficMapCard> {
   }
 
   @override
+  void didUpdateWidget(covariant TrafficMapCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Follow the driver as their GPS position updates instead of leaving
+    // the camera stuck on wherever it started.
+    if (oldWidget.driverPosition != widget.driverPosition) {
+      _mapController?.animateCamera(
+        CameraUpdate.newLatLng(widget.driverPosition),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final markers = <Marker>{
-      Marker(
-        markerId: const MarkerId('driver'),
-        position: widget.driverPosition,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-        infoWindow: const InfoWindow(title: 'You'),
-      ),
-    };
+    final markers = <Marker>{};
 
     for (final doc in widget.pendingRides) {
       final data = doc.data() as Map<String, dynamic>;
@@ -58,11 +63,18 @@ class _TrafficMapCardState extends State<TrafficMapCard> {
     }
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(20),
       child: Container(
-        height: 160,
+        height: 220,
         width: double.infinity,
-        color: const Color(0xFFEDEFF5),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF3B5B92), Color(0xFF1E3A6D)],
+          ),
+          borderRadius: BorderRadius.circular(20),
+        ),
         child: Stack(
           children: [
             Positioned.fill(
@@ -74,7 +86,7 @@ class _TrafficMapCardState extends State<TrafficMapCard> {
                 markers: markers,
                 myLocationEnabled: false,
                 zoomControlsEnabled: false,
-                liteModeEnabled: true,
+                  liteModeEnabled: false,
                 onMapCreated: (controller) => _mapController = controller,
               ),
             ),
@@ -93,11 +105,15 @@ class _TrafficMapCardState extends State<TrafficMapCard> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: const [
-                    Icon(Icons.circle, size: 8, color: Color(0xFF2F5BD3)),
+                    _PulsingDot(),
                     SizedBox(width: 6),
                     Text(
                       "Monitoring traffic in your area...",
-                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF1E3A6D),
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
@@ -106,6 +122,40 @@ class _TrafficMapCardState extends State<TrafficMapCard> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// A small breathing dot next to "Monitoring traffic..." so the label
+/// reads as a live indicator rather than a static caption.
+class _PulsingDot extends StatefulWidget {
+  const _PulsingDot();
+
+  @override
+  State<_PulsingDot> createState() => _PulsingDotState();
+}
+
+class _PulsingDotState extends State<_PulsingDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween<double>(
+        begin: 0.35,
+        end: 1,
+      ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut)),
+      child: const Icon(Icons.circle, size: 8, color: Color(0xFF2F5BD3)),
     );
   }
 }

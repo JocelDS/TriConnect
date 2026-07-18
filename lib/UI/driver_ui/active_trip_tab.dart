@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:triconnect/UI/driver_ui/widgets/trip_chat_screen.dart';
 import 'package:triconnect/UI/driver_ui/widgets/trip_info_card.dart';
@@ -40,6 +43,71 @@ class _ActiveTripTabState extends State<ActiveTripTab> {
 
   bool _completing = false;
 
+  StreamSubscription<Position>? _positionSub;
+  double? _driverLat;
+  double? _driverLng;
+
+  @override
+  void initState() {
+    super.initState();
+    _startLiveLocationTracking();
+  }
+
+  @override
+  void dispose() {
+    _positionSub?.cancel();
+    super.dispose();
+  }
+
+  /// Streams the driver's GPS while the trip is active, updates the local
+  /// map, and pushes the position to Firestore so the rider's app can
+  /// track the driver moving toward the destination in real time.
+  Future<void> _startLiveLocationTracking() async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+
+      _positionSub =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: 10, // meters between updates
+            ),
+          ).listen((position) {
+            if (!mounted) return;
+            setState(() {
+              _driverLat = position.latitude;
+              _driverLng = position.longitude;
+            });
+
+            final rideId = widget.rideId;
+            if (rideId != null) {
+              _firestoreService
+                  .updateDriverLiveLocation(
+                    rideId: rideId,
+                    lat: position.latitude,
+                    lng: position.longitude,
+                  )
+                  .catchError((_) {
+                    // Non-fatal — the map still works locally even if a
+                    // single Firestore write fails.
+                  });
+            }
+          });
+    } catch (_) {
+      // Trip still works without live tracking if the stream can't start.
+    }
+  }
+
   void _showSnack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(
@@ -70,6 +138,24 @@ class _ActiveTripTabState extends State<ActiveTripTab> {
             TripChatScreen(rideId: rideId, otherPartyName: riderName),
       ),
     );
+  }
+
+  Future<void> _launchNavigation(double toLat, double toLng) async {
+    final origin = _driverLat != null && _driverLng != null
+        ? '${_driverLat!},${_driverLng!}'
+        : null;
+    final destination = '$toLat,$toLng';
+    final uri = Uri.parse(origin == null
+        ? 'https://www.google.com/maps/dir/?api=1&destination=$destination&travelmode=driving'
+        : 'https://www.google.com/maps/dir/?api=1&origin=$origin&destination=$destination&travelmode=driving');
+
+    try {
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        _showSnack('Could not open navigation app.');
+      }
+    } catch (e) {
+      _showSnack('Navigation failed: $e');
+    }
   }
 
   Future<void> _completeTrip(DocumentSnapshot rideDoc) async {
@@ -219,66 +305,74 @@ class _ActiveTripTabState extends State<ActiveTripTab> {
                   );
                 }
 
-                return Column(
+                return Stack(
                   children: [
-                    Stack(
+                    Column(
                       children: [
-                        TripMap(
-                          pickupLat: pickupLat,
-                          pickupLng: pickupLng,
-                          destLat: destLat,
-                          destLng: destLng,
-                        ),
-                        Positioned(
-                          top: 12,
-                          left: 12,
-                          right: 12,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _navy,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.navigation_outlined,
-                                  color: Colors.white,
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    "Heading to: $destination",
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 14,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
+                        Expanded(
+                          child: TripMap(
+                            pickupLat: pickupLat,
+                            pickupLng: pickupLng,
+                            destLat: destLat,
+                            destLng: destLng,
+                            driverLat: _driverLat,
+                            driverLng: _driverLng,
+                            onNavigate: () {
+                              if (pickupLat != null && pickupLng != null) {
+                                _launchNavigation(pickupLat, pickupLng);
+                              } else if (destLat != null && destLng != null) {
+                                _launchNavigation(destLat, destLng);
+                              } else {
+                                _showSnack('Navigation destination is not available.');
+                              }
+                            },
                           ),
                         ),
                       ],
                     ),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: TripInfoCard(
-                          riderId: riderId,
-                          pickup: pickup,
-                          destination: destination,
-                          fare: fare,
-                          busy: _completing,
-                          onCall: _callRider,
-                          onChat: (riderName) =>
-                              _openChat(rideDoc.id, riderName),
-                          onCancel: () => _cancelTrip(rideDoc),
-                          onComplete: () => _completeTrip(rideDoc),
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: SafeArea(
+                        top: false,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(24),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withAlpha(26),
+                                blurRadius: 24,
+                                offset: const Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+                            child: TripInfoCard(
+                              riderId: riderId,
+                              pickup: pickup,
+                              destination: destination,
+                              fare: fare,
+                              busy: _completing,
+                              onCall: _callRider,
+                              onChat: (riderName) =>
+                                  _openChat(rideDoc.id, riderName),
+                              onNavigate: () {
+                                if (pickupLat != null && pickupLng != null) {
+                                  _launchNavigation(pickupLat, pickupLng);
+                                } else if (destLat != null && destLng != null) {
+                                  _launchNavigation(destLat, destLng);
+                                } else {
+                                  _showSnack('Navigation destination is not available.');
+                                }
+                              },
+                              onCancel: () => _cancelTrip(rideDoc),
+                              onComplete: () => _completeTrip(rideDoc),
+                            ),
+                          ),
                         ),
                       ),
                     ),

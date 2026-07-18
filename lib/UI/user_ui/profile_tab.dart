@@ -44,17 +44,22 @@ class ProfileTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = authService.currentUser;
 
-    return FutureBuilder<Map<String, dynamic>?>(
-      future: user == null ? null : authService.getUserProfile(user.uid),
+    if (user == null) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+        children: const [Center(child: Text('Sign in to view your profile.'))],
+      );
+    }
+
+    return StreamBuilder<Map<String, dynamic>?>(
+      stream: authService.userProfileStream(user.uid),
       builder: (context, snapshot) {
         final profile = snapshot.data;
-        final name =
-            user?.displayName ?? profile?['fullName'] as String? ?? "User";
-        final email = user?.email ?? "-";
+        final name = user.displayName ?? profile?['fullName'] as String? ?? "User";
+        final email = user.email ?? "-";
         final phone = profile?['phone'] as String? ?? "-";
         final homeAddressValue = profile?['homeAddress'] as String?;
-        final homeAddress =
-            (homeAddressValue == null || homeAddressValue.trim().isEmpty)
+        final homeAddress = (homeAddressValue == null || homeAddressValue.trim().isEmpty)
             ? "Not set"
             : homeAddressValue;
 
@@ -106,7 +111,7 @@ class ProfileTab extends StatelessWidget {
             StreamBuilder<QuerySnapshot>(
               stream: db
                   .collection('rides')
-                  .where('userId', isEqualTo: user?.uid)
+                  .where('userId', isEqualTo: user.uid)
                   .snapshots(),
               builder: (context, ridesSnap) {
                 final docs = ridesSnap.data?.docs ?? [];
@@ -145,7 +150,7 @@ class ProfileTab extends StatelessWidget {
                     height: 48,
                     child: OutlinedButton(
                       onPressed: () =>
-                          _showEditProfileDialog(context, user?.uid, profile),
+                          _showEditProfileDialog(context, user.uid, profile),
                       style: OutlinedButton.styleFrom(
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -160,7 +165,7 @@ class ProfileTab extends StatelessWidget {
                   child: SizedBox(
                     height: 48,
                     child: ElevatedButton(
-                      onPressed: () => _showSupportDialog(context, user?.uid),
+                      onPressed: () => _showSupportDialog(context, user.uid),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _navy,
                         foregroundColor: Colors.white,

@@ -11,6 +11,7 @@ class TripInfoCard extends StatelessWidget {
   final bool busy;
   final void Function(String? phone) onCall;
   final void Function(String riderName) onChat;
+  final VoidCallback onNavigate;
   final VoidCallback onCancel;
   final VoidCallback onComplete;
 
@@ -23,6 +24,7 @@ class TripInfoCard extends StatelessWidget {
     required this.busy,
     required this.onCall,
     required this.onChat,
+    required this.onNavigate,
     required this.onCancel,
     required this.onComplete,
   });
@@ -30,29 +32,28 @@ class TripInfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8),
+          BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          FutureBuilder<Map<String, dynamic>?>(
-            future: riderId == null
-                ? null
-                : AuthService().getUserProfile(riderId!),
-            builder: (context, riderSnapshot) {
-              final name =
-                  riderSnapshot.data?['fullName'] as String? ?? "Rider";
-              final phone = riderSnapshot.data?['phone'] as String?;
-              return Row(
+      child: FutureBuilder<Map<String, dynamic>?>(
+        future: riderId == null ? null : AuthService().getUserProfile(riderId!),
+        builder: (context, riderSnapshot) {
+          final name = riderSnapshot.data?['fullName'] as String? ?? 'Rider';
+          final phone = riderSnapshot.data?['phone'] as String?;
+          final rating = (riderSnapshot.data?['rating'] as num?)?.toDouble() ?? 5.0;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
                   const CircleAvatar(
-                    radius: 22,
+                    radius: 26,
                     backgroundColor: Color(0xFFE5EAF5),
                     child: Icon(Icons.person, color: Color(0xFF2F5BD3)),
                   ),
@@ -61,127 +62,89 @@ class TripInfoCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          name,
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          pickup,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey,
-                          ),
-                          overflow: TextOverflow.ellipsis,
+                        Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.star, size: 14, color: Colors.amber.shade700),
+                            const SizedBox(width: 6),
+                            Text('${rating.toStringAsFixed(1)} •', style: const TextStyle(color: Colors.grey)),
+                            const SizedBox(width: 6),
+                            Expanded(child: Text(pickup, style: const TextStyle(color: Colors.grey), overflow: TextOverflow.ellipsis)),
+                          ],
                         ),
                       ],
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.call, color: Color(0xFF2F5BD3)),
-                    onPressed: () => onCall(phone),
-                  ),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.chat_bubble_outline,
-                      color: Color(0xFF2F5BD3),
+                  IconButton(icon: const Icon(Icons.call, color: Color(0xFF2F5BD3)), onPressed: () => onCall(phone)),
+                  IconButton(icon: const Icon(Icons.chat_bubble_outline, color: Color(0xFF2F5BD3)), onPressed: () => onChat(name)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.location_on_outlined, color: Colors.grey),
+                          const SizedBox(width: 8),
+                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('PICKUP', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600)), const SizedBox(height: 4), Text(pickup, style: TextStyle(fontSize: 13))])),
+                          const SizedBox(width: 8),
+                          Container(padding: const EdgeInsets.symmetric(horizontal:8, vertical:4), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)), child: const Text('3 min', style: TextStyle(fontSize: 12))),
+                        ],
+                      ),
                     ),
-                    onPressed: () => onChat(name),
                   ),
                 ],
-              );
-            },
-          ),
-          const Divider(height: 28),
-          Row(
-            children: [
-              const Icon(
-                Icons.location_on_outlined,
-                size: 16,
-                color: Colors.grey,
               ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  "Pickup: $pickup",
-                  style: const TextStyle(fontSize: 13),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Icon(Icons.flag_outlined, size: 16, color: Colors.grey),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  "Destination: $destination",
-                  style: const TextStyle(fontSize: 13),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Text(
-                "₱",
-                style: TextStyle(
-                  fontSize: 15,
-                  color: Colors.grey,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(width: 2),
-              Text(
-                fare.toStringAsFixed(2),
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF2F5BD3),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: busy ? null : onCancel,
-                  icon: const Icon(Icons.close),
-                  label: const Text("Cancel Trip"),
-                  style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: busy ? null : onComplete,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2F5BD3),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.flag_outlined, color: Colors.grey),
+                          const SizedBox(width: 8),
+                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('DROP-OFF', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600)), const SizedBox(height: 4), Text(destination, style: TextStyle(fontSize: 13))])),
+                          const SizedBox(width: 8),
+                          Container(padding: const EdgeInsets.symmetric(horizontal:8, vertical:4), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)), child: const Text('—', style: TextStyle(fontSize: 12))),
+                        ],
+                      ),
+                    ),
                   ),
-                  icon: busy
-                      ? const SizedBox(
-                          height: 16,
-                          width: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(
-                          Icons.check_circle_outline,
-                          color: Colors.white,
-                        ),
-                  label: const Text(
-                    "Complete Trip",
-                    style: TextStyle(color: Colors.white),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: busy ? null : onComplete,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1A2744),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Arrived', style: TextStyle(color: Colors.white)),
+                    ),
                   ),
-                ),
+                ],
               ),
             ],
-          ),
-        ],
+          );
+        },
       ),
     );
   }

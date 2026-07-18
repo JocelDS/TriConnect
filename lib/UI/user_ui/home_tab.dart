@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:triconnect/UI/user_ui/widgets/book_ride_dialog.dart';
+import 'package:triconnect/UI/user_ui/widgets/driver_tracking_map.dart';
 // Removed map_grid_painter; using GoogleMap for live markers.
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:triconnect/services/notification_service.dart';
@@ -536,7 +537,7 @@ class _HomeTabState extends State<HomeTab> {
           onTap: _confirmSignOut,
           child: CircleAvatar(
             radius: 22,
-                backgroundColor: _navy.withValues(alpha: 0.1),
+            backgroundColor: _navy.withValues(alpha: 0.1),
             child: const Icon(Icons.person, color: _navy),
           ),
         ),
@@ -845,9 +846,28 @@ class _HomeTabState extends State<HomeTab> {
                     markers: markers,
                     myLocationEnabled: false,
                     zoomControlsEnabled: false,
-                    liteModeEnabled: true,
+                    liteModeEnabled: false,
                   );
                 },
+              ),
+            ),
+            // Scrim so the white status text stays readable no matter what
+            // color the underlying map tiles are (roads/land can be light).
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.0),
+                        Colors.black.withValues(alpha: 0.55),
+                      ],
+                      stops: const [0.45, 1.0],
+                    ),
+                  ),
+                ),
               ),
             ),
             Positioned(
@@ -1007,6 +1027,12 @@ class _CurrentRideSheetState extends State<_CurrentRideSheet> {
                   final destination =
                       ride['destinationAddress'] ?? ride['destination'] ?? '-';
                   final driver = ride['driverId'] as String?;
+                  final pickupLat = (ride['pickupLat'] as num?)?.toDouble();
+                  final pickupLng = (ride['pickupLng'] as num?)?.toDouble();
+                  final destLat = (ride['destinationLat'] as num?)?.toDouble();
+                  final destLng = (ride['destinationLng'] as num?)?.toDouble();
+                  final driverLat = (ride['driverLat'] as num?)?.toDouble();
+                  final driverLng = (ride['driverLng'] as num?)?.toDouble();
 
                   // notify on status change
                   if (_lastStatus != status) {
@@ -1031,22 +1057,48 @@ class _CurrentRideSheetState extends State<_CurrentRideSheet> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _InfoTile(label: 'Pickup', value: pickup),
-                        const SizedBox(height: 10),
-                        _InfoTile(label: 'Destination', value: destination),
-                        const SizedBox(height: 10),
-                        _InfoTile(
-                          label: 'Status',
-                          value: status[0].toUpperCase() + status.substring(1),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            controller: scrollController,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (status == 'accepted')
+                                  DriverTrackingMap(
+                                    driverLat: driverLat,
+                                    driverLng: driverLng,
+                                    pickupLat: pickupLat,
+                                    pickupLng: pickupLng,
+                                    destLat: destLat,
+                                    destLng: destLng,
+                                  ),
+                                if (status == 'accepted')
+                                  const SizedBox(height: 14),
+                                _InfoTile(label: 'Pickup', value: pickup),
+                                const SizedBox(height: 10),
+                                _InfoTile(
+                                  label: 'Destination',
+                                  value: destination,
+                                ),
+                                const SizedBox(height: 10),
+                                _InfoTile(
+                                  label: 'Status',
+                                  value:
+                                      status[0].toUpperCase() +
+                                      status.substring(1),
+                                ),
+                                const SizedBox(height: 10),
+                                _InfoTile(
+                                  label: 'Driver',
+                                  value: driver != null && driver.isNotEmpty
+                                      ? driver
+                                      : 'Waiting for driver',
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                        const SizedBox(height: 10),
-                        _InfoTile(
-                          label: 'Driver',
-                          value: driver != null && driver.isNotEmpty
-                              ? driver
-                              : 'Waiting for driver',
-                        ),
-                        const Spacer(),
+                        const SizedBox(height: 16),
                         Row(
                           children: [
                             Expanded(

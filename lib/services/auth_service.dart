@@ -80,6 +80,14 @@ class AuthService {
     }
   }
 
+  /// Stream the user's profile document so UI can react to live updates.
+  Stream<Map<String, dynamic>?> userProfileStream(String uid) {
+    return _firestore.collection('users').doc(uid).snapshots().map((doc) {
+      if (doc.exists) return doc.data();
+      return null;
+    });
+  }
+
   Future<String?> getUserRole(String uid) async {
     final doc = await _firestore.collection('users').doc(uid).get();
 

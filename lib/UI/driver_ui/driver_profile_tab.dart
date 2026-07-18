@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:triconnect/UI/driver_ui/widgets/documents_licenses_screen.dart';
 import 'package:triconnect/UI/driver_ui/widgets/help_center_screen.dart';
 import 'package:triconnect/UI/driver_ui/widgets/insurance_policy_screen.dart';
-import 'package:triconnect/UI/driver_ui/widgets/payout_methods_screen.dart';
 import 'package:triconnect/UI/driver_ui/widgets/personal_info_screen.dart';
 import 'package:triconnect/UI/driver_ui/widgets/profile_header_card.dart';
 import 'package:triconnect/UI/driver_ui/widgets/profile_info_tile.dart';
@@ -27,8 +26,8 @@ class DriverProfileTab extends StatelessWidget {
       ),
       body: user == null
           ? const Center(child: Text("Sign in to view your profile."))
-          : FutureBuilder<Map<String, dynamic>?>(
-              future: authService.getUserProfile(user.uid),
+          : StreamBuilder<Map<String, dynamic>?>(
+              stream: authService.userProfileStream(user.uid),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator(color: Color(0xFF1A2744)));
@@ -38,6 +37,7 @@ class DriverProfileTab extends StatelessWidget {
                 final name = user.displayName ?? profile?['fullName'] as String? ?? "Driver";
                 final email = user.email ?? "-";
                 final phone = profile?['phone'] as String? ?? "-";
+                final address = profile?['address'] as String? ?? "-";
                 final tricycleNumber = (profile?['tricycleNumber'] as String?) ?? '';
                 final vehicleLabel = tricycleNumber.isEmpty ? "No vehicle on file" : tricycleNumber;
                 final status = (profile?['status'] as String?) ?? "Available";
@@ -50,6 +50,7 @@ class DriverProfileTab extends StatelessWidget {
                       const SizedBox(height: 20),
                       ProfileInfoTile(icon: Icons.email_outlined, label: "Email", value: email),
                       ProfileInfoTile(icon: Icons.phone_outlined, label: "Phone", value: phone),
+                      ProfileInfoTile(icon: Icons.location_on_outlined, label: "Address", value: address),
                       const SizedBox(height: 6),
                       ProfileMenuTile(
                         icon: Icons.person_outline,
@@ -57,14 +58,6 @@ class DriverProfileTab extends StatelessWidget {
                         onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) => const PersonalInfoScreen()),
-                        ),
-                      ),
-                      ProfileMenuTile(
-                        icon: Icons.payment_outlined,
-                        title: "Payout Methods",
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const PayoutMethodsScreen()),
                         ),
                       ),
                       ProfileMenuTile(

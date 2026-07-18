@@ -16,6 +16,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
 
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _addressController = TextEditingController();
   final _vehicleController = TextEditingController();
 
   bool _loading = true;
@@ -36,6 +37,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
     final profile = await _authService.getUserProfile(uid);
     _nameController.text = profile?['fullName'] as String? ?? '';
     _phoneController.text = profile?['phone'] as String? ?? '';
+    _addressController.text = profile?['address'] as String? ?? '';
     _vehicleController.text = profile?['tricycleNumber'] as String? ?? '';
     if (mounted) setState(() => _loading = false);
   }
@@ -51,6 +53,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
         data: {
           'fullName': _nameController.text.trim(),
           'phone': _phoneController.text.trim(),
+          'address': _addressController.text.trim(),
           'tricycleNumber': _vehicleController.text.trim(),
         },
       );
@@ -75,6 +78,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
+    _addressController.dispose();
     _vehicleController.dispose();
     super.dispose();
   }
@@ -116,6 +120,14 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                       validator: (v) =>
                           (v == null || v.trim().isEmpty) ? "Required" : null,
                     ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _addressController,
+                        decoration: const InputDecoration(
+                          labelText: "Address",
+                        ),
+                        keyboardType: TextInputType.streetAddress,
+                      ),
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _vehicleController,

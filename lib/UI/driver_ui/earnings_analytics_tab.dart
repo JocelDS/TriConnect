@@ -19,45 +19,8 @@ class _EarningsTabState extends State<EarningsTab> {
   final AuthService _authService = AuthService();
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  bool _cashingOut = false;
-
   String? get _uid => _authService.currentUser?.uid;
 
-  void _showSnack(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  Future<void> _cashOut(List<QueryDocumentSnapshot> unpaidDocs, double amount) async {
-    final uid = _uid;
-    if (uid == null || unpaidDocs.isEmpty) return;
-
-    setState(() => _cashingOut = true);
-    try {
-      final batch = _db.batch();
-      for (final doc in unpaidDocs) {
-        batch.update(doc.reference, {
-          'paidOut': true,
-          'paidOutAt': FieldValue.serverTimestamp(),
-        });
-      }
-      final payoutRef = _db.collection('payouts').doc();
-      batch.set(payoutRef, {
-        'driverId': uid,
-        'amount': amount,
-        'tripCount': unpaidDocs.length,
-        'requestedAt': FieldValue.serverTimestamp(),
-        'status': 'pending',
-      });
-      await batch.commit();
-
-      _showSnack("Cash out requested for ₱${amount.toStringAsFixed(2)}.");
-    } catch (e) {
-      _showSnack("Couldn't process cash out: $e");
-    } finally {
-      if (mounted) setState(() => _cashingOut = false);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -108,8 +71,6 @@ class _EarningsTabState extends State<EarningsTab> {
                         thisWeek: stats.thisWeek,
                         total: stats.total,
                         availableBalance: stats.availableBalance,
-                        cashingOut: _cashingOut,
-                        onCashOut: () => _cashOut(stats.unpaidDocs, stats.availableBalance),
                       ),
                       const SizedBox(height: 20),
                       const Text(
