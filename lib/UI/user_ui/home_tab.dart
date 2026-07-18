@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -49,6 +50,7 @@ class _HomeTabState extends State<HomeTab> {
   bool _detectingLocation = true;
 
   StreamSubscription<QuerySnapshot>? _notificationsSub;
+  StreamSubscription<Position>? _locationUpdatesSub;
   bool _notificationsBaselineSet = false;
   final Set<String> _seenNotificationIds = {};
 
@@ -57,7 +59,15 @@ class _HomeTabState extends State<HomeTab> {
     super.initState();
     _loadProfile();
     _detectCurrentLocation();
+    _startLocationUpdates();
     _listenForNewNotifications();
+  }
+
+  @override
+  void dispose() {
+    _locationUpdatesSub?.cancel();
+    _notificationsSub?.cancel();
+    super.dispose();
   }
 
   /// Fires a real device notification whenever a *new* document appears in
@@ -199,6 +209,63 @@ class _HomeTabState extends State<HomeTab> {
     } finally {
       if (mounted) setState(() => _detectingLocation = false);
     }
+  }
+
+  void _startLocationUpdates() {
+    if (_locationUpdatesSub != null) return;
+
+    Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10,
+      ),
+    ).listen((position) async {
+      if (!mounted) return;
+
+      setState(() {
+        _currentLat = position.latitude;
+        _currentLng = position.longitude;
+        _detectingLocation = false;
+      });
+
+      final user = widget.authService.currentUser;
+      if (user == null) return;
+
+      String address = "${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}";
+      try {
+        final placemarks = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          final parts = [
+            p.street,
+            p.subLocality,
+            p.locality,
+            p.administrativeArea,
+          ].where((e) => e != null && e.trim().isNotEmpty).toList();
+          if (parts.isNotEmpty) address = parts.join(", ");
+        }
+      } catch (_) {
+        // Keep the coordinate fallback if reverse geocoding fails.
+      }
+
+      if (!mounted) return;
+      setState(() => _currentAddress = address);
+
+      await widget.authService.updateUserProfile(
+        uid: user.uid,
+        data: {
+          'lastAddress': address,
+          'lastLat': position.latitude,
+          'lastLng': position.longitude,
+          'lastLocationUpdatedAt': FieldValue.serverTimestamp(),
+        },
+      );
+    }, onError: (_) {
+      if (mounted) setState(() => _detectingLocation = false);
+    });
   }
 
   /// Turns a saved address string into coordinates. Returns null if the
@@ -493,12 +560,6 @@ class _HomeTabState extends State<HomeTab> {
         Navigator.pushReplacementNamed(context, '/login');
       }
     }
-  }
-
-  @override
-  void dispose() {
-    _notificationsSub?.cancel();
-    super.dispose();
   }
 
   @override
@@ -873,60 +934,74 @@ class _HomeTabState extends State<HomeTab> {
             Positioned(
               left: 16,
               bottom: 16,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Ride Status",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Ride Status",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        StreamBuilder<QuerySnapshot>(
+                          stream: user == null
+                              ? const Stream.empty()
+                              : widget.db
+                                    .collection('rides')
+                                    .where('userId', isEqualTo: user.uid)
+                                    .where(
+                                      'status',
+                                      whereIn: const ['pending', 'accepted'],
+                                    )
+                                    .snapshots(),
+                          builder: (context, snapshot) {
+                            if (user == null) {
+                              return const Text(
+                                "Sign in to track your ride.",
+                                style: TextStyle(color: Colors.white70, fontSize: 11),
+                              );
+                            }
+
+                            final count = snapshot.hasData
+                                ? snapshot.data!.docs.length
+                                : null;
+
+                            if (count == 0) {
+                              return const Text(
+                                "No active ride requests.",
+                                style: TextStyle(color: Colors.white70, fontSize: 11),
+                              );
+                            }
+
+                            return Text(
+                              count == null
+                                  ? "Checking your ride status..."
+                                  : "$count active ride request${count == 1 ? '' : 's'}",
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            );
+                          },
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  StreamBuilder<QuerySnapshot>(
-                    stream: user == null
-                        ? const Stream.empty()
-                        : widget.db
-                              .collection('rides')
-                              .where('userId', isEqualTo: user.uid)
-                              .where(
-                                'status',
-                                whereIn: const ['pending', 'accepted'],
-                              )
-                              .snapshots(),
-                    builder: (context, snapshot) {
-                      if (user == null) {
-                        return const Text(
-                          "Sign in to track your ride.",
-                          style: TextStyle(color: Colors.white70, fontSize: 12),
-                        );
-                      }
-
-                      final count = snapshot.hasData
-                          ? snapshot.data!.docs.length
-                          : null;
-
-                      if (count == 0) {
-                        return const Text(
-                          "No active ride requests.",
-                          style: TextStyle(color: Colors.white70, fontSize: 12),
-                        );
-                      }
-
-                      return Text(
-                        count == null
-                            ? "Checking your ride status..."
-                            : "$count active ride request${count == 1 ? '' : 's'}",
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                        ),
-                      );
-                    },
-                  ),
-                ],
+                ),
               ),
             ),
             Positioned(
@@ -936,12 +1011,20 @@ class _HomeTabState extends State<HomeTab> {
                 borderRadius: BorderRadius.circular(24),
                 onTap: _openCurrentRide,
                 child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: const BoxDecoration(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
                     color: Colors.white,
                     shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.25),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                        spreadRadius: 2,
+                      ),
+                    ],
                   ),
-                  child: const Icon(Icons.navigation, color: _navy, size: 18),
+                  child: const Icon(Icons.navigation, color: _navy, size: 20),
                 ),
               ),
             ),

@@ -11,6 +11,33 @@ import 'package:triconnect/services/auth_service.dart';
 class DriverProfileTab extends StatelessWidget {
   const DriverProfileTab({super.key});
 
+  Future<void> _confirmSignOut(BuildContext context, AuthService authService) async {
+    final shouldSignOut = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Sign Out"),
+        content: const Text("Are you sure you want to sign out?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Sign Out", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldSignOut == true) {
+      await authService.signOut();
+      if (context.mounted) {
+        Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authService = AuthService();
@@ -43,15 +70,15 @@ class DriverProfileTab extends StatelessWidget {
                 final status = (profile?['status'] as String?) ?? "Available";
 
                 return SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                   child: Column(
                     children: [
                       ProfileHeaderCard(name: name, vehicleLabel: vehicleLabel, status: status),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 18),
                       ProfileInfoTile(icon: Icons.email_outlined, label: "Email", value: email),
                       ProfileInfoTile(icon: Icons.phone_outlined, label: "Phone", value: phone),
                       ProfileInfoTile(icon: Icons.location_on_outlined, label: "Address", value: address),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 8),
                       ProfileMenuTile(
                         icon: Icons.person_outline,
                         title: "Personal Information",
@@ -84,23 +111,24 @@ class DriverProfileTab extends StatelessWidget {
                           MaterialPageRoute(builder: (_) => const HelpCenterScreen()),
                         ),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton.icon(
-                          onPressed: () async {
-                            await authService.signOut();
-                            if (context.mounted) {
-                              Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
-                            }
-                          },
+                          onPressed: () => _confirmSignOut(context, authService),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.red,
                             side: const BorderSide(color: Colors.red),
                             padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
                           ),
-                          icon: const Icon(Icons.logout),
-                          label: const Text("Log Out"),
+                          icon: const Icon(Icons.logout, color: Colors.red),
+                          label: const Text(
+                            "Sign Out",
+                            style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+                          ),
                         ),
                       ),
                     ],

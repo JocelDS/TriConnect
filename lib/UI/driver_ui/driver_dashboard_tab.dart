@@ -486,13 +486,27 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                                   message: "No active ride requests right now.",
                                 )
                               else
-                                RideRequestCard(
-                                  doc: available.first,
-                                  driverPosition: _driverPosition,
-                                  busy: _busy,
-                                  onAccept: () => _acceptRide(available.first),
-                                  onDecline: () =>
-                                      _declineRide(available.first),
+                                ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxHeight: 320,
+                                  ),
+                                  child: ListView.separated(
+                                    padding: EdgeInsets.zero,
+                                    physics: const BouncingScrollPhysics(),
+                                    itemCount: available.length,
+                                    separatorBuilder: (_, _) =>
+                                        const SizedBox(height: 10),
+                                    itemBuilder: (context, index) {
+                                      final doc = available[index];
+                                      return RideRequestCard(
+                                        doc: doc,
+                                        driverPosition: _driverPosition,
+                                        busy: _busy,
+                                        onAccept: () => _acceptRide(doc),
+                                        onDecline: () => _declineRide(doc),
+                                      );
+                                    },
+                                  ),
                                 ),
                               const SizedBox(height: 20),
                               TrafficMapCard(

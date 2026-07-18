@@ -88,7 +88,7 @@ class ProfileTab extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 22),
             _ProfileField(
               icon: Icons.email_outlined,
               label: "Email",
@@ -106,7 +106,7 @@ class ProfileTab extends StatelessWidget {
               label: "Home Address",
               value: homeAddress,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 22),
             // Ride stats
             StreamBuilder<QuerySnapshot>(
               stream: db
@@ -176,7 +176,7 @@ class ProfileTab extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 24),
             SizedBox(
               height: 50,
               child: OutlinedButton.icon(
@@ -184,10 +184,11 @@ class ProfileTab extends StatelessWidget {
                 icon: const Icon(Icons.logout, color: Colors.red),
                 label: const Text(
                   "Sign Out",
-                  style: TextStyle(color: Colors.red),
+                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
                 ),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: Colors.red),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
@@ -349,12 +350,16 @@ extension on ProfileTab {
                     });
                 // Update display name in Firebase Auth as well
                 await FirebaseAuth.instance.currentUser?.updateDisplayName(fn);
-                Navigator.pop(context);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                }
               } catch (e) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text('Update failed: $e')));
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Update failed: $e')),
+                  );
+                }
               }
             },
             child: const Text('Save'),
@@ -390,15 +395,19 @@ extension on ProfileTab {
                   'message': msg,
                   'createdAt': FieldValue.serverTimestamp(),
                 });
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Support request sent')),
-                );
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Support request sent')),
+                  );
+                }
               } catch (e) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text('Failed to send: $e')));
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to send: $e')),
+                  );
+                }
               }
             },
             child: const Text('Send'),

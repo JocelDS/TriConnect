@@ -18,7 +18,27 @@ class _DriverQueueSheetState extends State<DriverQueueSheet> {
 
   int _selectedTab = 0;
 
-  Future<void> _logout() async {
+  Future<void> _confirmLogout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign Out'),
+        content: const Text('Are you sure you want to sign out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sign Out', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogout != true) return;
+
     await _authService.signOut();
     if (mounted) {
       Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
@@ -47,7 +67,7 @@ class _DriverQueueSheetState extends State<DriverQueueSheet> {
         type: BottomNavigationBarType.fixed,
         onTap: (index) async {
           if (index == 2) {
-            await _logout();
+            await _confirmLogout();
             return;
           }
           setState(() => _selectedTab = index);
@@ -238,7 +258,7 @@ class _DriverQueueSheetState extends State<DriverQueueSheet> {
             SizedBox(
               height: 50,
               child: OutlinedButton.icon(
-                onPressed: _logout,
+                onPressed: _confirmLogout,
                 icon: const Icon(Icons.logout, color: Colors.red),
                 label: const Text(
                   "Sign Out",

@@ -52,6 +52,9 @@ class _TrafficMapCardState extends State<TrafficMapCard> {
           Marker(
             markerId: MarkerId(doc.id),
             position: LatLng(lat, lng),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueOrange,
+            ),
             infoWindow: InfoWindow(
               title:
                   (data['pickupAddress'] ?? data['pickup'] ?? 'Pickup')
