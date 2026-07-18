@@ -173,17 +173,7 @@ class _BookRideDialogState extends State<_BookRideDialog> {
       });
       _recalculateFare();
 
-      // Save the customer's detected address to their profile so it's
-      // available elsewhere in the app (e.g. showing "Your location: ...").
-      await _authService.updateUserProfile(
-        uid: widget.userId,
-        data: {
-          'lastAddress': address,
-          'lastLat': lat,
-          'lastLng': lng,
-          'lastLocationUpdatedAt': FieldValue.serverTimestamp(),
-        },
-      );
+      await _authService.clearLegacyLocationFields(widget.userId);
     } catch (_) {
       _useDefaultPickup();
     } finally {

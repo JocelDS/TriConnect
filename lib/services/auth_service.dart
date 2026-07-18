@@ -15,10 +15,16 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    return await _auth.signInWithEmailAndPassword(
+    final credential = await _auth.signInWithEmailAndPassword(
       email: email.trim(),
       password: password.trim(),
     );
+
+    if (credential.user != null) {
+      await clearLegacyLocationFields(credential.user!.uid);
+    }
+
+    return credential;
   }
 
   // ================= REGISTER =================
@@ -47,6 +53,8 @@ class AuthService {
       'createdAt': FieldValue.serverTimestamp(),
     });
 
+    await clearLegacyLocationFields(credential.user!.uid);
+
     return credential;
   }
 
@@ -62,15 +70,31 @@ class AuthService {
     return null;
   }
 
+  Future<void> clearLegacyLocationFields(String uid) async {
+    await _firestore.collection('users').doc(uid).set({
+      'lastAddress': FieldValue.delete(),
+      'lastLat': FieldValue.delete(),
+      'lastLng': FieldValue.delete(),
+      'lastLocationUpdatedAt': FieldValue.delete(),
+    }, SetOptions(merge: true));
+  }
+
   Future<void> updateUserProfile({
     required String uid,
     Map<String, dynamic> data = const {},
   }) async {
     if (data.isEmpty) return;
+
+    final payload = <String, dynamic>{...data};
+    payload['lastAddress'] = FieldValue.delete();
+    payload['lastLat'] = FieldValue.delete();
+    payload['lastLng'] = FieldValue.delete();
+    payload['lastLocationUpdatedAt'] = FieldValue.delete();
+
     await _firestore
         .collection('users')
         .doc(uid)
-        .set(data, SetOptions(merge: true));
+        .set(payload, SetOptions(merge: true));
 
     final fullName = data['fullName'];
     if (fullName is String &&

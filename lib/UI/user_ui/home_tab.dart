@@ -134,15 +134,6 @@ class _HomeTabState extends State<HomeTab> {
               _currentLat = resolved.latitude;
               _currentLng = resolved.longitude;
             });
-            await widget.authService.updateUserProfile(
-              uid: user.uid,
-              data: {
-                'lastAddress': homeAddress,
-                'lastLat': resolved.latitude,
-                'lastLng': resolved.longitude,
-                'lastLocationUpdatedAt': FieldValue.serverTimestamp(),
-              },
-            );
             return;
           }
         }
@@ -194,15 +185,7 @@ class _HomeTabState extends State<HomeTab> {
       });
 
       if (user != null) {
-        await widget.authService.updateUserProfile(
-          uid: user.uid,
-          data: {
-            'lastAddress': address,
-            'lastLat': lat,
-            'lastLng': lng,
-            'lastLocationUpdatedAt': FieldValue.serverTimestamp(),
-          },
-        );
+        await widget.authService.clearLegacyLocationFields(user.uid);
       }
     } catch (_) {
       _useDefaultLocation();
@@ -254,15 +237,7 @@ class _HomeTabState extends State<HomeTab> {
       if (!mounted) return;
       setState(() => _currentAddress = address);
 
-      await widget.authService.updateUserProfile(
-        uid: user.uid,
-        data: {
-          'lastAddress': address,
-          'lastLat': position.latitude,
-          'lastLng': position.longitude,
-          'lastLocationUpdatedAt': FieldValue.serverTimestamp(),
-        },
-      );
+      await widget.authService.clearLegacyLocationFields(user.uid);
     }, onError: (_) {
       if (mounted) setState(() => _detectingLocation = false);
     });

@@ -232,13 +232,11 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
       final lat = (profile['driverLat'] ??
               profile['lat'] ??
               profile['homeLat'] ??
-              profile['latitude'] ??
-              profile['lastLat']) as num?;
+              profile['latitude']) as num?;
       final lng = (profile['driverLng'] ??
               profile['lng'] ??
               profile['homeLng'] ??
-              profile['longitude'] ??
-              profile['lastLng']) as num?;
+              profile['longitude']) as num?;
       if (lat != null && lng != null) {
         if (!mounted) return;
         setState(() {
@@ -254,7 +252,6 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
         profile['homeAddress'] as String?,
         profile['fullAddress'] as String?,
         profile['locationAddress'] as String?,
-        profile['lastAddress'] as String?,
       ];
 
       for (final rawAddress in addressCandidates) {
