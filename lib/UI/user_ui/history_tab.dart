@@ -140,7 +140,10 @@ class HistoryTab extends StatelessWidget {
                                             const SizedBox(width: 6),
                                             Text(
                                               'You rated your driver ${driverRating.toStringAsFixed(1)}',
-                                              style: const TextStyle(fontWeight: FontWeight.w600),
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                color: Color(0xFF1E3A6D),
+                                              ),
                                             ),
                                           ],
                                         )
@@ -176,8 +179,12 @@ class HistoryTab extends StatelessWidget {
                                             },
                                             style: ElevatedButton.styleFrom(
                                               backgroundColor: const Color(0xFF1E3A6D),
+                                              foregroundColor: Colors.white,
                                             ),
-                                            child: const Text('Rate Driver'),
+                                            child: const Text(
+                                              'Rate Driver',
+                                              style: TextStyle(fontWeight: FontWeight.w600),
+                                            ),
                                           ),
                                         ),
                                 ),
@@ -201,13 +208,19 @@ class HistoryTab extends StatelessWidget {
       barrierDismissible: true,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Rate your driver'),
+          title: const Text(
+            'Rate your driver',
+            style: TextStyle(color: Color(0xFF1E3A6D)),
+          ),
           content: StatefulBuilder(
             builder: (context, setState) {
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('How would you rate your driver?'),
+                  const Text(
+                    'How would you rate your driver?',
+                    style: TextStyle(color: Color(0xFF1E3A6D)),
+                  ),
                   const SizedBox(height: 16),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -234,10 +247,15 @@ class HistoryTab extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(null),
+              style: TextButton.styleFrom(foregroundColor: const Color(0xFF1E3A6D)),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
               onPressed: () => Navigator.of(context).pop(rating),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1E3A6D),
+                foregroundColor: Colors.white,
+              ),
               child: const Text('Submit'),
             ),
           ],
