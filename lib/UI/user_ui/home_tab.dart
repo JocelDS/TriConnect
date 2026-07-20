@@ -162,7 +162,7 @@ class _HomeTabState extends State<HomeTab> {
 
       String address = "${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}";
       try {
-        final placemarks = await placemarkFromCoordinates(lat, lng);
+        final placemarks = await Geocoding().placemarkFromCoordinates(lat, lng);
         if (placemarks.isNotEmpty) {
           final p = placemarks.first;
           final parts = [
@@ -170,7 +170,7 @@ class _HomeTabState extends State<HomeTab> {
             p.subLocality,
             p.locality,
             p.administrativeArea,
-          ].where((e) => e != null && e.trim().isNotEmpty).toList();
+          ].where((e) => e != null && (e).trim().isNotEmpty).toList();
           if (parts.isNotEmpty) address = parts.join(", ");
         }
       } catch (_) {
@@ -216,7 +216,7 @@ class _HomeTabState extends State<HomeTab> {
 
       String address = "${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}";
       try {
-        final placemarks = await placemarkFromCoordinates(
+        final placemarks = await Geocoding().placemarkFromCoordinates(
           position.latitude,
           position.longitude,
         );
@@ -227,7 +227,7 @@ class _HomeTabState extends State<HomeTab> {
             p.subLocality,
             p.locality,
             p.administrativeArea,
-          ].where((e) => e != null && e.trim().isNotEmpty).toList();
+          ].where((e) => e != null && (e).trim().isNotEmpty).toList();
           if (parts.isNotEmpty) address = parts.join(", ");
         }
       } catch (_) {
@@ -247,7 +247,7 @@ class _HomeTabState extends State<HomeTab> {
   /// address can't be resolved (e.g. it's too vague or geocoding fails).
   Future<Location?> _geocodeAddress(String address) async {
     try {
-      final results = await locationFromAddress(address);
+      final results = await Geocoding().locationFromAddress(address);
       if (results.isNotEmpty) return results.first;
     } catch (_) {
       // Fall through to null — caller will try GPS/default instead.
@@ -493,7 +493,58 @@ class _HomeTabState extends State<HomeTab> {
   }
 
   void _openSupport() {
-    _showSnack("Support is not configured yet. Please contact the admin.");
+    final user = widget.authService.currentUser;
+    if (user == null) {
+      _showSnack("Sign in first to contact support.");
+      return;
+    }
+
+    final msgController = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Support'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: TextField(
+            controller: msgController,
+            keyboardType: TextInputType.multiline,
+            minLines: 3,
+            maxLines: 6,
+            decoration: const InputDecoration(
+              hintText: 'Describe your issue',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              final msg = msgController.text.trim();
+              if (msg.isEmpty) return;
+              try {
+                await widget.db.collection('support').add({
+                  'uid': user.uid,
+                  'message': msg,
+                  'createdAt': FieldValue.serverTimestamp(),
+                });
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  _showSnack('Support request sent');
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  _showSnack('Failed to send support request: $e');
+                }
+              }
+            },
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _openNotifications() {
@@ -1121,36 +1172,47 @@ class _CurrentRideSheetState extends State<_CurrentRideSheet> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                if (status == 'accepted')
-                                  DriverTrackingMap(
-                                    driverLat: driverLat,
-                                    driverLng: driverLng,
-                                    pickupLat: pickupLat,
-                                    pickupLng: pickupLng,
-                                    destLat: destLat,
-                                    destLng: destLng,
-                                  ),
-                                if (status == 'accepted')
-                                  const SizedBox(height: 14),
-                                _InfoTile(label: 'Pickup', value: pickup),
-                                const SizedBox(height: 10),
-                                _InfoTile(
-                                  label: 'Destination',
-                                  value: destination,
-                                ),
-                                const SizedBox(height: 10),
-                                _InfoTile(
-                                  label: 'Status',
-                                  value:
-                                      status[0].toUpperCase() +
-                                      status.substring(1),
-                                ),
-                                const SizedBox(height: 10),
-                                _InfoTile(
-                                  label: 'Driver',
-                                  value: driver != null && driver.isNotEmpty
-                                      ? driver
-                                      : 'Waiting for driver',
+                                FutureBuilder<Map<String, dynamic>?>(
+                                  future: driver == null
+                                      ? Future.value(null)
+                                      : AuthService().getUserProfile(driver),
+                                  builder: (context, profSnap) {
+                                    final driverName = profSnap.data?['fullName'] as String?;
+                                    return Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        if (status == 'accepted')
+                                          DriverTrackingMap(
+                                            driverLat: driverLat,
+                                            driverLng: driverLng,
+                                            pickupLat: pickupLat,
+                                            pickupLng: pickupLng,
+                                            destLat: destLat,
+                                            destLng: destLng,
+                                            driverName: driverName,
+                                          ),
+                                        if (status == 'accepted') const SizedBox(height: 14),
+                                        _InfoTile(label: 'Pickup', value: pickup),
+                                        const SizedBox(height: 10),
+                                        _InfoTile(
+                                          label: 'Destination',
+                                          value: destination,
+                                        ),
+                                        const SizedBox(height: 10),
+                                        _InfoTile(
+                                          label: 'Status',
+                                          value: status[0].toUpperCase() + status.substring(1),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        _InfoTile(
+                                          label: 'Driver',
+                                          value: driverName != null && driverName.isNotEmpty
+                                              ? driverName
+                                              : (driver != null && driver.isNotEmpty ? driver : 'Waiting for driver'),
+                                        ),
+                                      ],
+                                    );
+                                  },
                                 ),
                               ],
                             ),

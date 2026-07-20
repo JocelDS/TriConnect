@@ -104,7 +104,7 @@ class _BookRideDialogState extends State<_BookRideDialog> {
       final homeAddress = (profile?['homeAddress'] as String?)?.trim();
       if (homeAddress != null && homeAddress.isNotEmpty) {
         try {
-          final results = await locationFromAddress(homeAddress);
+          final results = await Geocoding().locationFromAddress(homeAddress);
           if (results.isNotEmpty) {
             final loc = results.first;
             if (!mounted) return;
@@ -147,7 +147,7 @@ class _BookRideDialogState extends State<_BookRideDialog> {
 
       String address = "${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}";
       try {
-        final placemarks = await placemarkFromCoordinates(lat, lng);
+        final placemarks = await Geocoding().placemarkFromCoordinates(lat, lng);
         if (placemarks.isNotEmpty) {
           final p = placemarks.first;
           final parts = [
@@ -155,7 +155,7 @@ class _BookRideDialogState extends State<_BookRideDialog> {
             p.subLocality,
             p.locality,
             p.administrativeArea,
-          ].where((e) => e != null && e.trim().isNotEmpty).toList();
+          ].where((e) => e != null && (e).trim().isNotEmpty).toList();
           if (parts.isNotEmpty) address = parts.join(", ");
         }
       } catch (_) {

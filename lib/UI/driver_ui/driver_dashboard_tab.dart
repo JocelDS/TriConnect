@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart' as geocoding;
+import 'package:geocoding/geocoding.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:triconnect/UI/driver_ui/active_trip_tab.dart';
 import 'package:triconnect/UI/driver_ui/widgets/dashboard_top_bar.dart';
@@ -191,7 +191,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
 
     for (final candidate in candidates) {
       try {
-        final locations = await geocoding.locationFromAddress(candidate);
+        final locations = await Geocoding().locationFromAddress(candidate);
         if (locations.isNotEmpty) {
           final loc = locations.first;
           return LatLng(loc.latitude, loc.longitude);

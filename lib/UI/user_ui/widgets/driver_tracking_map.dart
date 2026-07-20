@@ -12,6 +12,7 @@ class DriverTrackingMap extends StatefulWidget {
   final double? pickupLng;
   final double? destLat;
   final double? destLng;
+  final String? driverName;
 
   const DriverTrackingMap({
     super.key,
@@ -21,6 +22,7 @@ class DriverTrackingMap extends StatefulWidget {
     required this.pickupLng,
     required this.destLat,
     required this.destLng,
+    this.driverName,
   });
 
   @override
@@ -98,7 +100,11 @@ class _DriverTrackingMapState extends State<DriverTrackingMap> {
           icon: BitmapDescriptor.defaultMarkerWithHue(
             BitmapDescriptor.hueAzure,
           ),
-          infoWindow: const InfoWindow(title: 'Your driver'),
+          infoWindow: InfoWindow(
+            title: widget.driverName == null || widget.driverName!.isEmpty
+                ? 'Your driver'
+                : widget.driverName,
+          ),
         ),
       );
     }

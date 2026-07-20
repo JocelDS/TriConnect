@@ -169,8 +169,15 @@ class ProfileTab extends StatelessWidget {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _navy,
                         foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                       ),
-                      child: const Text('Support'),
+                      child: const Text(
+                        'Support',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
                     ),
                   ),
                 ),
@@ -376,9 +383,18 @@ extension on ProfileTab {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Support'),
-        content: TextField(
-          controller: msgController,
-          decoration: const InputDecoration(hintText: 'Describe your issue'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: TextField(
+            controller: msgController,
+            keyboardType: TextInputType.multiline,
+            minLines: 3,
+            maxLines: 6,
+            decoration: const InputDecoration(
+              hintText: 'Describe your issue',
+              border: OutlineInputBorder(),
+            ),
+          ),
         ),
         actions: [
           TextButton(

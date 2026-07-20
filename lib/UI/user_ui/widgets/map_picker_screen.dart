@@ -85,7 +85,7 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
   Future<void> _reverseGeocode(LatLng point) async {
     setState(() => _resolvingAddress = true);
     try {
-      final placemarks = await placemarkFromCoordinates(
+      final placemarks = await Geocoding().placemarkFromCoordinates(
         point.latitude,
         point.longitude,
       );
@@ -96,7 +96,7 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
           p.subLocality,
           p.locality,
           p.administrativeArea,
-        ].where((e) => e != null && e.trim().isNotEmpty).toList();
+        ].where((e) => e != null && (e).trim().isNotEmpty).toList();
         setState(() {
           _pickedAddress = parts.isNotEmpty
               ? parts.join(", ")
@@ -125,7 +125,7 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
     FocusScope.of(context).unfocus();
     setState(() => _searching = true);
     try {
-      final locations = await locationFromAddress(query);
+      final locations = await Geocoding().locationFromAddress(query);
       if (locations.isNotEmpty) {
         final loc = locations.first;
         final target = LatLng(loc.latitude, loc.longitude);
